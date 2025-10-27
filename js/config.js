@@ -100,8 +100,6 @@ const MapConfig = {
         usePathBasedPrompts: true,
         // 优先使用“预计算的转向序列”来生成提示（基于规划路径，抖动更少）
         usePrecomputedManeuvers: true,
-        // 掉头提示的最小触发距离（米）：距离大于该值时，优先显示直行，避免从起点就长时间显示掉头
-        uturnPromptDistanceMeters: 30,
         // 接近起点时，允许"以我为起点"自动对齐到路网的距离（米）
          startRebaseDistanceMeters: 15,
         // 判定到达终点的沿路网剩余距离（米）。建议10~15米，过大会提前结束
