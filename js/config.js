@@ -110,6 +110,8 @@ const MapConfig = {
     requireStartAtOrigin: true,
         // 与下一个转向的距离大于该阈值时，顶部图标优先显示"直行"，避免误解为仍需立即转向（单位：米）
         turnPromptDistanceMeters: 40,
+        // 超过该距离时，不优先提示“掉头”，而优先展示后续非掉头的转向或直行（单位：米）
+        uturnPromptDistanceMeters: 20,
         // 提示模式：'path'（基于路网，默认）或 'heading'（基于用户朝向）
         promptMode: 'path'
     }
