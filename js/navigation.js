@@ -2456,16 +2456,12 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     let iconPath = '';
     let actionName = '';
 
-    // 当距离下一次转向较远时，优先展示“直行”以避免用户误解为仍需立即右/左转/掉头
-    // 可通过 MapConfig.navigationConfig.turnPromptDistanceMeters（通用）与 uturnPromptDistanceMeters（掉头专用）配置阈值
+    // 当距离下一次转向较远时，优先展示“直行”以避免用户误解为仍需立即右/左转
+    // 可通过 MapConfig.navigationConfig.turnPromptDistanceMeters 配置阈值（默认40米）
     let turnPromptThreshold = 40;
-    let uturnPromptThreshold = 30;
     try {
         if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.turnPromptDistanceMeters === 'number') {
             turnPromptThreshold = MapConfig.navigationConfig.turnPromptDistanceMeters;
-        }
-        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.uturnPromptDistanceMeters === 'number') {
-            uturnPromptThreshold = MapConfig.navigationConfig.uturnPromptDistanceMeters;
         }
     } catch (e) {}
 
@@ -2546,15 +2542,10 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     let iconRotation = 0;
 
     // 如果距离下一次转向大于阈值，则图标优先展示“直行”，文案显示“距离下一次转向还有 X 米”
-    // 注意：偏离路线(offroute)或即将后退(backward)不应用该直行覆盖逻辑；
-    //       掉头(uturn)采用单独的阈值，当距离过远时也抑制为直行，避免从起点起就长时间显示掉头。
+    // 注意：偏离路线(offroute)或即将掉头(backward/uturn)时不应用该直行覆盖逻辑
     const farFromNextTurn = isFinite(distance) && distance > turnPromptThreshold;
     let effectiveDirection = directionType;
     if (farFromNextTurn && directionType !== 'offroute' && directionType !== 'backward' && directionType !== 'uturn') {
-        effectiveDirection = 'forward';
-    }
-    // 掉头的远距离抑制
-    if (directionType === 'uturn' && isFinite(distance) && distance > uturnPromptThreshold) {
         effectiveDirection = 'forward';
     }
 
