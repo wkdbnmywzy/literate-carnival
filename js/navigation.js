@@ -24,10 +24,13 @@ let gpsWatchId = null;            // 浏览器GPS监听ID（真实导航）
 let preNavWatchId = null;         // 导航前的位置监听ID
 let lastGpsPos = null;            // 上一次GPS位置（用于计算朝向）
 let geoErrorNotified = false;     // 避免重复弹错误
+let lastRenderPosNav = null;      // 上一次用于渲染/吸附后的显示位置（用于计算视觉朝向）
 // 设备方向（用于箭头随朝向变化）
 let trackingDeviceOrientationNav = false;
 let deviceOrientationHandlerNav = null;
 let lastDeviceHeadingNav = null; // 度，0-360，顺时针（相对正北）
+// 未到起点时的“前往起点”引导虚线（蓝色带箭头）
+let preStartGuidePolyline = null;
 // 导航页动态角度偏移：用于自动修正稳定的180°反向
 let dynamicAngleOffsetNav = 0; // 0 或 180
 let calibrationStateNav = { count0: 0, count180: 0, locked: false };
@@ -793,13 +796,13 @@ function drawKMLRoute(routeResult) {
         return;
     }
 
-    // 绘制路线（使用与KML线一致的样式）
+    // 绘制路线（与首页规划阶段保持一致的样式）
     try {
         routePolyline = new AMap.Polyline({
             path: path,
             strokeColor: '#00C853',     // 标准导航绿色
-            strokeWeight: 4,             // 与KML线宽一致（3-4px）
-            strokeOpacity: 0.95,         // 稍微透明，更自然
+            strokeWeight: 8,             // 与规划页保持一致的线宽
+            strokeOpacity: 1.0,          // 保持不透明，增强可读性
             lineJoin: 'round',
             lineCap: 'round',
             zIndex: 200,                 // 高zIndex，确保在KML线上方
@@ -1692,7 +1695,10 @@ function updateNavigationTip() {
     // 先找“最近路口”，用于显示“到最近路口还有 X 米”
     let directionType = 'straight';
     let distanceToNext = 0;
-    const junction = findNextJunctionAhead(currPos, navigationPath, currentNavigationIndex || 0);
+    // 使用当前位置在路网的投影索引作为起始索引，避免索引滞后导致提示方向/距离异常
+    const projForTip = projectPointOntoPathMeters(currPos, navigationPath);
+    const startIdxForTip = Math.max(currentNavigationIndex || 0, (projForTip && typeof projForTip.index === 'number') ? projForTip.index : 0);
+    const junction = findNextJunctionAhead(currPos, navigationPath, startIdxForTip);
     if (junction) {
         const angle = junction.angle;
         if (angle > 135 || angle < -135) directionType = 'uturn';
@@ -1700,6 +1706,37 @@ function updateNavigationTip() {
         else if (angle < -30 && angle >= -135) directionType = 'left';
         else directionType = 'straight';
         distanceToNext = Math.round(junction.distance || 0);
+
+        // 刚完成掉头时的提示抑制：若方向已对齐前向段且距离很近，则不再继续显示“掉头”
+        try {
+            // 取投影索引，计算“前向段”的方位
+            const proj = projectPointOntoPathMeters(currPos, navigationPath);
+            const startIdx = Math.max(currentNavigationIndex || 0, (proj && typeof proj.index === 'number') ? proj.index : 0);
+            if (startIdx >= 0 && startIdx < navigationPath.length - 1) {
+                const aheadBearing = calculateBearingBetweenPoints(
+                    navigationPath[startIdx],
+                    navigationPath[startIdx + 1]
+                );
+                const userHeading = getEffectiveUserHeading(currPos);
+
+                // 使用与“通过拐点”一致或略放宽的阈值
+                let passTurnThreshold = 8;
+                try {
+                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.turnPassDistanceMeters === 'number') {
+                        passTurnThreshold = MapConfig.navigationConfig.turnPassDistanceMeters;
+                    }
+                } catch (e) {}
+
+                const nearTurn = isFinite(distanceToNext) && distanceToNext <= Math.max(12, passTurnThreshold);
+                if (directionType === 'uturn' && nearTurn && typeof userHeading === 'number') {
+                    const diff = navAngleAbsDiff(userHeading, aheadBearing);
+                    // 当用户朝向已与前向段对齐（<=45°）时，认为掉头已完成，改为直行提示
+                    if (diff <= 45) {
+                        directionType = 'straight';
+                    }
+                }
+            }
+        } catch (e) { /* 忽略抑制失败，保持原逻辑 */ }
     } else {
         // 回退：使用原有“下一个转向点”的逻辑
         directionType = getNavigationDirection();
@@ -1793,8 +1830,12 @@ function findNextTurnPoint() {
         [userMarker.getPosition().lng, userMarker.getPosition().lat] :
         navigationPath[Math.max(0, currentNavigationIndex)];
 
+    // 基于当前位置的“投影索引”与 currentNavigationIndex 取较大者作为扫描起点，避免索引滞后
+    const projForTurn = projectPointOntoPathMeters(currPos, navigationPath);
+    const startIdx = Math.max((currentNavigationIndex || 0), (projForTurn && typeof projForTurn.index === 'number') ? projForTurn.index : 0);
+
     // 从当前位置开始查找
-    for (let i = currentNavigationIndex + 1; i < navigationPath.length - 1; i++) {
+    for (let i = startIdx + 1; i < navigationPath.length - 1; i++) {
         // 跳过极短线段引起的“锯齿”抖动
         const segLenPrev = calculateDistanceBetweenPoints(navigationPath[i - 1], navigationPath[i]);
         const segLenNext = calculateDistanceBetweenPoints(navigationPath[i], navigationPath[i + 1]);
@@ -1822,7 +1863,7 @@ function findNextTurnPoint() {
     }
 
     // 后备方案：若严格条件未找到拐点，放宽条件再次扫描（忽略最小线段长度限制）
-    for (let i = currentNavigationIndex + 1; i < navigationPath.length - 1; i++) {
+    for (let i = startIdx + 1; i < navigationPath.length - 1; i++) {
         const p1 = (i - 2 >= 0) ? navigationPath[i - 2] : navigationPath[i - 1];
         const p2 = navigationPath[i];
         const p3 = (i + 2 < navigationPath.length) ? navigationPath[i + 2] : navigationPath[i + 1];
@@ -3031,93 +3072,158 @@ function startRealNavigationTracking() {
                 console.log('导航中我的位置标记创建成功');
             }
 
-            // 计算朝向并旋转：优先使用设备方向 heading；否则用移动向量
+            // 先基于路网计算“投影与吸附”
+            let routeCheckResult = checkIfOnRouteWithAccuracy(curr, fullPath, accuracy);
+            let projectionPointForSnap = routeCheckResult && routeCheckResult.projectionPoint;
+            let displayPos = curr;
+            try {
+                // 吸附阈值（米）：可配置 MapConfig.navigationConfig.snapToRouteDistanceMeters；默认12米
+                let snapThreshold = 12;
+                try {
+                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.snapToRouteDistanceMeters === 'number') {
+                        snapThreshold = MapConfig.navigationConfig.snapToRouteDistanceMeters;
+                    }
+                } catch (e) {}
+
+                if (Array.isArray(projectionPointForSnap) && projectionPointForSnap.length >= 2) {
+                    const dToProj = calculateDistanceBetweenPoints(curr, projectionPointForSnap);
+                    if (isFinite(dToProj) && dToProj <= snapThreshold) {
+                        displayPos = projectionPointForSnap; // 在小偏差内，吸附到路网
+                    }
+                }
+            } catch (e) { /* 吸附失败则退回原始位置 */ }
+
+            // 计算朝向并旋转：优先使用设备方向；否则用“显示位置”的移动向量
             let heading = null;
             if (typeof lastDeviceHeadingNav === 'number') {
                 heading = lastDeviceHeadingNav;
-            } else if (lastGpsPos) {
-                const moveDist = calculateDistanceBetweenPoints(lastGpsPos, curr);
-                if (moveDist > 0.5) { // 小于0.5米忽略抖动
-                    heading = calculateBearingBetweenPoints(lastGpsPos, curr);
+            } else if (lastRenderPosNav) {
+                const moveDist = calculateDistanceBetweenPoints(lastRenderPosNav, displayPos);
+                if (moveDist > 0.5) {
+                    heading = calculateBearingBetweenPoints(lastRenderPosNav, displayPos);
                 }
             }
 
-            // 应用朝向角度：统一封装并在此路径尝试自动校准（处理稳定180°反向）
+            // 使用“显示位置”进行自动校准与朝向应用
             if (heading !== null) {
                 try {
-                    attemptAutoCalibrationNav(curr, heading);
+                    // 为了与吸附后的位置一致，使用显示位置推进校准状态
+                    if (lastRenderPosNav) { lastGpsPos = lastRenderPosNav; }
+                    attemptAutoCalibrationNav(displayPos, heading);
                     navApplyHeadingToMarker(heading);
                 } catch (e) {
                     console.error('设置标记角度失败:', e);
                 }
             }
-            lastGpsPos = curr;
-            userMarker.setPosition(curr);
+            // 更新标记显示位置与状态
+            userMarker.setPosition(displayPos);
+            lastRenderPosNav = displayPos;
+            lastGpsPos = displayPos;
 
             // 检查是否偏离路径并更新路径显示（使用精度圈判断）
-            // 新逻辑：投影点在路线上即可开始导航，无需必须到起点
-            let routeCheckResult = checkIfOnRouteWithAccuracy(curr, fullPath, accuracy);
+            // 已在上方计算了 routeCheckResult，可直接复用
             let onRoute = routeCheckResult.onRoute;
             let projectionPoint = routeCheckResult.projectionPoint;
             let segIndex = routeCheckResult.segmentIndex >= 0 ? routeCheckResult.segmentIndex : findClosestPathIndex(curr, fullPath);
 
-            // 是否强制要求到达起点附近再开始（如果投影点不在路线上）
-            let requireStartAtOrigin = false; // 默认改为false，因为投影点在路线上即可
+            // 是否强制要求到达起点附近再开始
+            // 需求：未到达起点时，保持与“路线规划”一致的整条绿色路线
+            // 因此默认改为 true，只有接近起点后才正式开始分段导航
+            let requireStartAtOrigin = true;
             try {
                 if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.requireStartAtOrigin === 'boolean') {
                     requireStartAtOrigin = MapConfig.navigationConfig.requireStartAtOrigin;
                 }
             } catch (e) {}
 
-            if (requireStartAtOrigin && !hasReachedStart && !onRoute) {
-                // 只有在配置要求且未到起点且不在路线上时才检查起点距离
-                const distToStart = calculateDistanceBetweenPoints(curr, fullPath[0]);
-                if (distToStart <= (startRebaseThresholdMeters || 25)) {
-                    // 到达起点附近：允许开始沿路网导航
-                    hasReachedStart = true;
-                    onRoute = true;
+            if (!hasReachedStart) {
+                if (requireStartAtOrigin) {
+                    // 仅当接近规划起点时，才视为“到达起点”，开始分段导航
+                    const distToStart = calculateDistanceBetweenPoints(curr, fullPath[0]);
+                    if (distToStart <= (startRebaseThresholdMeters || 25)) {
+                        hasReachedStart = true;
+                        onRoute = true;
+                        console.log('到达起点附近，开始沿路网导航');
+                    } else {
+                        // 未到起点：统一视为需前往起点
+                        onRoute = false;
+                    }
                 } else {
-                    // 未到起点：一律视为偏离，提示"请前往起点"
-                    onRoute = false;
+                    // 兼容配置允许：只要在路网上就开始
+                    if (onRoute) {
+                        hasReachedStart = true;
+                        console.log('投影点在规划路网上，开始导航');
+                    }
                 }
-            } else if (onRoute && !hasReachedStart) {
-                // 投影点在路线上，即使不在起点也可以开始导航
-                hasReachedStart = true;
-                console.log('投影点在规划路线上，开始导航，无需前往起点');
             }
             isOffRoute = !onRoute;
             console.log('精度:', accuracy, 'm, 偏离路径状态:', isOffRoute);
 
-            // 根据是否偏离路径决定如何显示路线
-            if (isOffRoute) {
-                // 偏离路径时：不再把绿色路线恢复为整条，改为在 updatePathSegments 内按“回到路线的接入点”裁剪
-                if (!hasReachedStart) {
-                    console.log('未到起点附近，提示用户前往起点，仅绘制从接入点开始的剩余路径');
-                } else {
-                    console.log('已偏离路径，仅绘制从接入点开始的剩余路径，并显示黄色偏离轨迹');
-                }
-                // 仍然调用 updatePathSegments 以更新黄色偏离路径与绿色剩余路径（从接入点起）
-                updatePathSegments(curr, fullPath, segIndex, projectionPoint);
+            // 路径展示策略：
+            // - 未到达起点：保持与“路线规划阶段”一致的整条绿色路线，不画灰线/黄线
+            // - 到达起点后：按原逻辑进行分段显示（灰：已走；绿：剩余；黄：偏离）
+            if (!hasReachedStart) {
+                // 移除灰线/黄线
+                if (passedRoutePolyline) { try { navigationMap.remove(passedRoutePolyline); } catch (e) {} passedRoutePolyline = null; }
+                if (deviatedRoutePolyline) { try { navigationMap.remove(deviatedRoutePolyline); } catch (e) {} deviatedRoutePolyline = null; }
+                deviatedPath = [];
+
+                // 强制保持整条规划路径（起点→终点）为绿色
+                try {
+                    if (routePolyline && typeof routePolyline.setPath === 'function') {
+                        routePolyline.setPath(fullPath);
+                    }
+                } catch (e) { console.warn('设置整条规划路径失败:', e); }
+
+                // 绘制“前往起点”的蓝色虚线箭头（当前位置 → 起点）
+                try {
+                    const fromPos = (lastRenderPosNav || curr);
+                    const toPos = fullPath[0];
+                    if (fromPos && toPos) {
+                        if (!preStartGuidePolyline) {
+                            preStartGuidePolyline = new AMap.Polyline({
+                                path: [fromPos, toPos],
+                                strokeColor: '#2E7DFF',   // 蓝色
+                                strokeWeight: 4,
+                                strokeOpacity: 1,
+                                strokeStyle: 'dashed',
+                                strokeDasharray: [12, 8],
+                                showDir: false,           // 仅显示蓝色虚线，不显示箭头
+                                zIndex: 180,
+                                map: navigationMap
+                            });
+                        } else {
+                            preStartGuidePolyline.setPath([fromPos, toPos]);
+                            if (!preStartGuidePolyline.getMap()) preStartGuidePolyline.setMap(navigationMap);
+                        }
+                    }
+                } catch (e) { console.warn('更新前往起点引导线失败:', e); }
+
+                console.log('未到达起点：展示整条绿色规划路线');
             } else {
-                // 在路径上时：将规划路径分为已走部分（灰色）和剩余部分（绿色），并将分割点对齐到路网
+                // 已到达起点，移除“前往起点”引导线
+                if (preStartGuidePolyline) {
+                    try { navigationMap.remove(preStartGuidePolyline); } catch (e) {}
+                    preStartGuidePolyline = null;
+                }
+                // 已到达起点，按原有分段逻辑处理
                 updatePathSegments(curr, fullPath, segIndex, projectionPoint);
-                console.log('在路径上，显示分段路径');
             }
 
-            // 视图跟随
-            try { navigationMap.setCenter(curr); } catch (e) {}
+            // 视图跟随：跟随显示位置（吸附后的位置）
+            try { navigationMap.setCenter(lastRenderPosNav || curr); } catch (e) {}
 
             // ====== 分支检测逻辑 ======
             if (hasReachedStart && !isOffRoute && fullPath && fullPath.length > 0) {
                 // 检测前方是否有分岔路口
-                const branchInfo = detectBranchingPoint(curr, fullPath, segIndex, 30);
+                const branchInfo = detectBranchingPoint(lastRenderPosNav || curr, fullPath, segIndex, 30);
 
                 if (branchInfo.isBranching) {
                     currentBranchInfo = branchInfo;
 
                     // 如果用户有朝向数据，检测用户选择了哪条分支
                     if (heading !== null) {
-                        const chosenBranch = detectUserBranchChoice(curr, heading, branchInfo);
+                        const chosenBranch = detectUserBranchChoice(lastRenderPosNav || curr, heading, branchInfo);
 
                         // 如果用户选择了非推荐分支，更新记录
                         if (chosenBranch >= 0 && chosenBranch !== branchInfo.recommendedBranch) {
@@ -3146,7 +3252,7 @@ function startRealNavigationTracking() {
             // 更新提示
             if (hasReachedStart) {
                 // 使用“投影到路网”的结果推进导航进度，避免仅靠最近顶点导致转弯后提示滞后
-                const projForProgress = projectPointOntoPathMeters(curr, fullPath);
+                const projForProgress = projectPointOntoPathMeters(lastRenderPosNav || curr, fullPath);
                 let progressIndex = (projForProgress && typeof projForProgress.index === 'number')
                     ? projForProgress.index
                     : segIndex;
@@ -3161,7 +3267,7 @@ function startRealNavigationTracking() {
                         passTurnThreshold = MapConfig.navigationConfig.turnPassDistanceMeters;
                     }
                     if (!isOffRoute && typeof nextTurnIndex === 'number' && nextTurnIndex > 0 && nextTurnIndex < fullPath.length) {
-                        const distToTurn = computeDistanceToIndexMeters(curr, fullPath, nextTurnIndex) || 0;
+                        const distToTurn = computeDistanceToIndexMeters(lastRenderPosNav || curr, fullPath, nextTurnIndex) || 0;
                         if (isFinite(distToTurn) && distToTurn <= passTurnThreshold) {
                             // 将进度至少推进到该转向点
                             currentNavigationIndex = Math.max(currentNavigationIndex, nextTurnIndex);
@@ -3185,8 +3291,8 @@ function startRealNavigationTracking() {
 
             // 到终点判定（使用沿路网的剩余距离，避免未到就结束）
             const end = fullPath[fullPath.length - 1];
-            const distToEnd = calculateDistanceBetweenPoints(curr, end);
-            const proj = projectPointOntoPathMeters(curr, fullPath);
+            const distToEnd = calculateDistanceBetweenPoints(lastRenderPosNav || curr, end);
+            const proj = projectPointOntoPathMeters(lastRenderPosNav || curr, fullPath);
             const remainRouteDist = proj ? computeRemainingRouteDistanceMeters(fullPath, proj) : distToEnd;
 
             const nearByRoute = remainRouteDist <= endArrivalThresholdMeters;
@@ -3218,6 +3324,7 @@ function stopRealNavigationTracking() {
     if (accuracyCircle && navigationMap) { navigationMap.remove(accuracyCircle); accuracyCircle = null; }
     if (passedRoutePolyline && navigationMap) { navigationMap.remove(passedRoutePolyline); passedRoutePolyline = null; }
     if (deviatedRoutePolyline && navigationMap) { navigationMap.remove(deviatedRoutePolyline); deviatedRoutePolyline = null; }
+    if (preStartGuidePolyline && navigationMap) { try { navigationMap.remove(preStartGuidePolyline); } catch (e) {} preStartGuidePolyline = null; }
     deviatedPath = []; // 清空偏离路径点集合
     // 停止设备方向监听
     tryStopDeviceOrientationNav();
@@ -3458,14 +3565,7 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
             }
         }
 
-        // 偏离时：是否隐藏灰线取决于模式（trail 隐藏，history 保留大段历史可见）
-        const passedMode = (() => {
-            try { return MapConfig?.navigationConfig?.passedMode || 'history'; } catch (e) { return 'history'; }
-        })();
-        if (passedMode === 'trail' && passedRoutePolyline) {
-            navigationMap.remove(passedRoutePolyline);
-            passedRoutePolyline = null;
-        }
+        // 偏离时：保留已走灰线，体现完整历史，不再根据“trail/history”模式隐藏
     } else {
         // 回到路线上时，清除偏离路径
         if (deviatedRoutePolyline) {
@@ -3475,55 +3575,24 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         deviatedPath = [];
     }
 
-    // 构建已走过的路径（灰色）：根据模式绘制“短尾巴”或“历史大段”
+    // 构建已走过的路径（灰色）：从规划起点到当前投影点的“整段已走路线”
     let passedPath = [];
-    {
-        const passedMode = (() => {
-            try { return MapConfig?.navigationConfig?.passedMode || 'history'; } catch (e) { return 'history'; }
-        })();
-
-        const backMeters = (() => {
-            try {
-                if (passedMode === 'trail') {
-                    const v = MapConfig?.navigationConfig?.passedTrailMeters;
-                    if (typeof v === 'number' && isFinite(v)) return Math.max(10, Math.min(200, v));
-                    return 60;
-                } else { // history
-                    const v = MapConfig?.navigationConfig?.passedHistoryMeters;
-                    if (typeof v === 'number' && isFinite(v)) return Math.max(100, Math.min(2000, v));
-                    return 400; // 默认 400 米覆盖大段历史
-                }
-            } catch (e) { return passedMode === 'trail' ? 60 : 400; }
-        })();
-
-        if (routePoint && routeSegIndex >= 0) {
-            const backPoints = [routePoint];
-            let remain = backMeters;
-            let curr = routePoint;
-            let i = routeSegIndex;
-
-            while (remain > 0 && i >= 0) {
-                const start = fullPath[i];
-                const distToStart = calculateDistanceBetweenPoints(curr, start);
-                if (distToStart <= 0.01) {
-                    curr = start;
-                    i -= 1;
-                    continue;
-                }
-                if (remain < distToStart) {
-                    const t = remain / distToStart; // 从 curr 朝 start 方向插值
-                    const interp = interpolateLngLat(curr, start, t);
-                    backPoints.push(interp);
-                    remain = 0;
-                    break;
-                } else {
-                    backPoints.push(start);
-                    remain -= distToStart;
-                    curr = start;
-                    i -= 1;
-                }
+    if (routePoint && routeSegIndex >= 0) {
+        // 取起点到当前段的全部节点
+        passedPath = fullPath.slice(0, routeSegIndex + 1);
+        // 若投影点不等于该段端点，补上投影点，保证灰线精确到当前位置
+        const last = passedPath[passedPath.length - 1];
+        try {
+            const distToLast = calculateDistanceBetweenPoints(
+                Array.isArray(last) ? last : [last.lng, last.lat],
+                Array.isArray(routePoint) ? routePoint : [routePoint.lng, routePoint.lat]
+            );
+            if (!isNaN(distToLast) && distToLast > 0.05) { // >5cm 认为不同点
+                passedPath.push(routePoint);
             }
-            passedPath = backPoints.reverse();
+        } catch (e) {
+            // 回退：直接追加
+            passedPath.push(routePoint);
         }
     }
 
