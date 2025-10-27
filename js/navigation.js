@@ -1708,6 +1708,36 @@ function updateNavigationTip() {
             const target = turnSequence[turnSeqPtr];
             directionType = target.type || 'straight';
             distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, target.index) || 0;
+            // 特殊规则："掉头"仅在接近时提示；远离时优先展示后续的非掉头转向，否则显示直行
+            if (directionType === 'uturn') {
+                let uturnNear = 20; // 默认接近掉头提示距离
+                try {
+                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.uturnPromptDistanceMeters === 'number') {
+                        uturnNear = MapConfig.navigationConfig.uturnPromptDistanceMeters;
+                    }
+                } catch (e) {}
+
+                if (!isFinite(distanceToNext) || distanceToNext > uturnNear) {
+                    // 查找下一个非掉头的转向项
+                    let found = null;
+                    for (let j = turnSeqPtr + 1; j < turnSequence.length; j++) {
+                        if (turnSequence[j].type !== 'uturn') { found = turnSequence[j]; break; }
+                    }
+                    if (found) {
+                        const dist2 = computeDistanceToIndexMeters(currPos, navigationPath, found.index) || 0;
+                        if (isFinite(dist2) && dist2 > 0) {
+                            directionType = found.type;
+                            distanceToNext = dist2;
+                        } else {
+                            // 没有更好的候选，则保持直行
+                            directionType = 'forward';
+                        }
+                    } else {
+                        // 后续没有非掉头的动作，保持直行
+                        directionType = 'forward';
+                    }
+                }
+            }
             usedPrecomputed = true;
         }
     } catch (e) {}
