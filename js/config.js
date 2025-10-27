@@ -102,10 +102,6 @@ const MapConfig = {
         usePrecomputedManeuvers: true,
         // 掉头提示的最小触发距离（米）：距离大于该值时，优先显示直行，避免从起点就长时间显示掉头
         uturnPromptDistanceMeters: 30,
-        // 临近拐点时的“近距窗口”（米）：在该距离内强制显示左/右/掉头图标
-        turnNearDisplayMeters: 12,
-        // 通过拐点后保留拐向图标的时长（毫秒）：增强“经过拐点”的反馈
-        turnLingerMs: 1500,
         // 接近起点时，允许"以我为起点"自动对齐到路网的距离（米）
          startRebaseDistanceMeters: 15,
         // 判定到达终点的沿路网剩余距离（米）。建议10~15米，过大会提前结束
