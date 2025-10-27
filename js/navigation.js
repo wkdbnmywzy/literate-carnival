@@ -1454,8 +1454,6 @@ let nextTurnIndex = -1; // 下一个转向点的索引
 // 预计算的转向序列（基于规划路径），每项: { index, angle, type: 'left'|'right'|'uturn'|'straight' }
 let turnSequence = [];
 let turnSeqPtr = 0; // 指向未通过的下一个转向在 turnSequence 中的下标
-// 刚刚通过的拐点（用于“经过拐点时显示左/右图标”的短暂保留）
-let justPassedTurn = null; // { type: 'left'|'right'|'uturn', time: number }
 let hasReachedStart = false; // 是否已到达起点附近并正式开始沿路网导航
 
 // 工业运输车速度配置（单位：米/小时）
@@ -2544,20 +2542,6 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     // 计算显示的距离（四舍五入）
     const distance = Math.round(distanceToNext || 0);
 
-    // 近距窗口与通过后保留时长
-    let nearTurnThreshold = 12;
-    let turnLingerMs = 1500;
-    try {
-        if (MapConfig && MapConfig.navigationConfig) {
-            if (typeof MapConfig.navigationConfig.turnNearDisplayMeters === 'number') {
-                nearTurnThreshold = MapConfig.navigationConfig.turnNearDisplayMeters;
-            }
-            if (typeof MapConfig.navigationConfig.turnLingerMs === 'number') {
-                turnLingerMs = MapConfig.navigationConfig.turnLingerMs;
-            }
-        }
-    } catch (e) {}
-
     // 重置图标旋转样式
     let iconRotation = 0;
 
@@ -2566,23 +2550,12 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     //       掉头(uturn)采用单独的阈值，当距离过远时也抑制为直行，避免从起点起就长时间显示掉头。
     const farFromNextTurn = isFinite(distance) && distance > turnPromptThreshold;
     let effectiveDirection = directionType;
-    // 若使用了预计算序列且临近当前转向点，强制显示左/右/掉头（避免被“直行覆盖”）
-    if (usedPrecomputed && (directionType === 'left' || directionType === 'right' || directionType === 'uturn')) {
-        if (isFinite(distance) && distance <= nearTurnThreshold) {
-            effectiveDirection = directionType;
-        }
-    }
-    if (farFromNextTurn && effectiveDirection !== 'offroute' && effectiveDirection !== 'backward' && effectiveDirection !== 'uturn') {
+    if (farFromNextTurn && directionType !== 'offroute' && directionType !== 'backward' && directionType !== 'uturn') {
         effectiveDirection = 'forward';
     }
     // 掉头的远距离抑制
-    if (effectiveDirection === 'uturn' && isFinite(distance) && distance > uturnPromptThreshold) {
+    if (directionType === 'uturn' && isFinite(distance) && distance > uturnPromptThreshold) {
         effectiveDirection = 'forward';
-    }
-
-    // 若刚刚通过一个拐点（在 turnLingerMs 内），短暂保留该拐向图标
-    if (justPassedTurn && justPassedTurn.type && (Date.now() - justPassedTurn.time) <= turnLingerMs) {
-        effectiveDirection = justPassedTurn.type;
     }
 
     switch (effectiveDirection) {
@@ -3376,10 +3349,6 @@ function startRealNavigationTracking() {
                         const distToTurn = computeDistanceToIndexMeters(lastRenderPosNav || curr, fullPath, targetIdx) || 0;
                         if (isFinite(distToTurn) && distToTurn <= passTurnThreshold) {
                             // 通过当前转向，推进到下一个
-                            try {
-                                const passedType = turnSequence[turnSeqPtr].type;
-                                justPassedTurn = { type: passedType, time: Date.now() };
-                            } catch (e) { justPassedTurn = null; }
                             turnSeqPtr = Math.min(turnSeqPtr + 1, turnSequence.length);
                             if (turnSeqPtr < turnSequence.length) {
                                 nextTurnIndex = turnSequence[turnSeqPtr].index;
