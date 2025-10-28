@@ -44,6 +44,7 @@ let deviatedPath = [];             // 偏离路径的点���合
 let maxPassedSegIndex = -1;        // 记录用户走过的最远路径点索引
 let passedSegments = new Set();    // 记录已走过的路段（格式："startIndex-endIndex"）
 let visitedWaypoints = new Set();  // 记录已到达的途径点名称
+let currentTargetPoint = null;     // 当前目标点：{ type: 'start'|'waypoint'|'end', name: string, position: [lng,lat], index?: number }
 
 let currentBranchInfo = null;      // 当前检测到的分支信息
 let userChosenBranch = -1;         // 用户选择的分支索引（-1表示未选择或推荐分支）
@@ -1575,6 +1576,9 @@ function startNavigationUI() {
         navigationCard.classList.add('navigating');
     }
 
+    // 初始化当前目标点为起点
+    initializeCurrentTarget();
+
     // 更新目的地信息（从KML数据中获取）
     updateDestinationInfo();
 
@@ -1628,19 +1632,121 @@ function stopNavigationUI() {
     console.log('导航已停止');
 }
 
+// ====== 目标点管理逻辑 ======
+
+// 初始化当前目标点（导航开始时调用）
+function initializeCurrentTarget() {
+    if (!routeData) return;
+
+    // 初始状态：当前目标为起点
+    currentTargetPoint = {
+        type: 'start',
+        name: routeData.start.name || '起点',
+        position: routeData.start.position || [0, 0]
+    };
+
+    console.log('初始化目标点为起点:', currentTargetPoint.name);
+}
+
+// 切换到下一个目标点
+function switchToNextTarget() {
+    if (!routeData) return;
+
+    const currentType = currentTargetPoint ? currentTargetPoint.type : 'start';
+
+    if (currentType === 'start') {
+        // 从起点切换到第一个途径点或终点
+        if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0) {
+            // 找到第一个未访问的途径点
+            const nextWaypoint = waypointIndexMap.find(wp => !visitedWaypoints.has(wp.name));
+            if (nextWaypoint) {
+                currentTargetPoint = {
+                    type: 'waypoint',
+                    name: nextWaypoint.name,
+                    position: nextWaypoint.position,
+                    index: nextWaypoint.index
+                };
+                console.log('切换目标点到途径点:', currentTargetPoint.name);
+                return;
+            }
+        }
+        // 没有途径点或所有途径点已访问，直接切换到终点
+        currentTargetPoint = {
+            type: 'end',
+            name: routeData.end.name || '终点',
+            position: routeData.end.position || [0, 0]
+        };
+        console.log('切换目标点到终点:', currentTargetPoint.name);
+
+    } else if (currentType === 'waypoint') {
+        // 从途径点切换到下一个途径点或终点
+        if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0) {
+            // 找到下一个未访问的途径点
+            const nextWaypoint = waypointIndexMap.find(wp => !visitedWaypoints.has(wp.name));
+            if (nextWaypoint) {
+                currentTargetPoint = {
+                    type: 'waypoint',
+                    name: nextWaypoint.name,
+                    position: nextWaypoint.position,
+                    index: nextWaypoint.index
+                };
+                console.log('切换目标点到下一个途径点:', currentTargetPoint.name);
+                return;
+            }
+        }
+        // 没有更多途径点，切换到终点
+        currentTargetPoint = {
+            type: 'end',
+            name: routeData.end.name || '终点',
+            position: routeData.end.position || [0, 0]
+        };
+        console.log('切换目标点到终点:', currentTargetPoint.name);
+    }
+    // 如果已经是终点，不再切换
+}
+
+// 计算到当前目标点的距离（沿路网）
+function getDistanceToCurrentTarget(currPos, fullPath) {
+    if (!currentTargetPoint || !Array.isArray(fullPath) || fullPath.length < 2) {
+        return 0;
+    }
+
+    // 投影当前位置到路径
+    const currProj = projectPointOntoPathMeters(currPos, fullPath);
+    if (!currProj) return 0;
+
+    // 投影目标点到路径
+    const targetProj = projectPointOntoPathMeters(currentTargetPoint.position, fullPath);
+    if (!targetProj) return 0;
+
+    // 如果目标点有预计算的索引，使用该索引
+    let targetIndex = targetProj.index;
+    if (currentTargetPoint.type === 'waypoint' && typeof currentTargetPoint.index === 'number') {
+        targetIndex = currentTargetPoint.index;
+    }
+
+    // 计算沿路网的距离
+    const distance = computeDistanceToIndexMeters(currPos, fullPath, targetIndex) || 0;
+    return distance;
+}
+
 // 更新目的地信息
 function updateDestinationInfo() {
-    if (!routeData || !routeData.end) {
+    if (!routeData) {
         return;
     }
 
-    const destinationName = routeData.end.name || '目的地';
+    // 使用当前目标点（如果未初始化，默认使用终点）
+    let targetName = routeData.end.name || '目的地';
+    if (currentTargetPoint) {
+        targetName = currentTargetPoint.name;
+    }
 
     // 尝试从KML数据中获取详细信息
     let orgName = '';
     let description = '';
 
-    // 从KML图层中查找终点的详细信息
+    // 从KML图层中查找目标点的详细信息
     if (typeof kmlLayers !== 'undefined' && kmlLayers && kmlLayers.length > 0) {
         for (const layer of kmlLayers) {
             if (!layer.visible) continue;
@@ -1651,21 +1757,19 @@ function updateDestinationInfo() {
                 }
 
                 const extData = marker.getExtData();
-                if (extData && extData.name === destinationName) {
+                if (extData && extData.name === targetName) {
                     // 找到匹配的KML点
                     description = extData.description || '';
 
                     // 尝试从描述中提取组织名称
-                    // 假设描述格式可能包含组织信息
                     if (description) {
-                        // 如果描述中包含特定分隔符，提取第一部分作为组织名
                         const parts = description.split(/[,，;；]/);
                         if (parts.length > 1) {
                             orgName = parts[0].trim();
                         }
                     }
 
-                    console.log('从KML获取目的地信息:', { name: destinationName, org: orgName, desc: description });
+                    console.log('从KML获取目标点信息:', { name: targetName, org: orgName, desc: description });
                     break;
                 }
             }
@@ -1688,7 +1792,7 @@ function updateDestinationInfo() {
     }
 
     if (destinationNameElem) {
-        destinationNameElem.textContent = destinationName;
+        destinationNameElem.textContent = targetName;
     }
 }
 
@@ -1763,12 +1867,19 @@ function updateNavigationTip() {
     const destinationDistanceElem = document.getElementById('destination-distance');
     const destinationTimeElem = document.getElementById('destination-time');
 
+    // 计算到当前目标点的距离
+    let distanceToTarget = remainingDistance; // 默认使用到终点的总距离
+    if (currentTargetPoint && userMarker) {
+        const currPos = [userMarker.getPosition().lng, userMarker.getPosition().lat];
+        distanceToTarget = getDistanceToCurrentTarget(currPos, navigationPath);
+    }
+
     if (destinationDistanceElem) {
-        destinationDistanceElem.textContent = Math.round(remainingDistance);
+        destinationDistanceElem.textContent = Math.round(distanceToTarget);
     }
 
     if (destinationTimeElem) {
-        const hours = remainingDistance / VEHICLE_SPEED;
+        const hours = distanceToTarget / VEHICLE_SPEED;
         const minutes = Math.ceil(hours * 60);
         destinationTimeElem.textContent = minutes;
     }
@@ -3355,12 +3466,16 @@ function startRealNavigationTracking() {
 
             if (!hasReachedStart) {
                 if (requireStartAtOrigin) {
-                    // 仅当接近规划起点时，才视为“到达起点”，开始分段导航
+                    // 仅当接近规划起点时，才视为"到达起点"，开始分段导航
                     const distToStart = calculateDistanceBetweenPoints(curr, fullPath[0]);
                     if (distToStart <= (startRebaseThresholdMeters || 25)) {
                         hasReachedStart = true;
                         onRoute = true;
                         console.log('到达起点附近，开始沿路网导航');
+
+                        // 到达起点，切换到下一个目标（第一个途径点或终点）
+                        switchToNextTarget();
+                        updateDestinationInfo();
                     } else {
                         // 未到起点：统一视为需前往起点
                         onRoute = false;
@@ -3607,7 +3722,11 @@ function markWaypointArrivalIfNeeded(currPos, path) {
         const d = computeDistanceToIndexMeters(currPos, path, w.index) || Infinity;
         if (isFinite(d) && d <= arriveThresh) {
             visitedWaypoints.add(w.name);
-            try { console.log('到达途径点:', w.name); } catch (e) {}
+            console.log('到达途径点:', w.name);
+
+            // 到达途径点，切换到下一个目标
+            switchToNextTarget();
+            updateDestinationInfo();
         }
     }
 }
