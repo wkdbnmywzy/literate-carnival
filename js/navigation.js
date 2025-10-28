@@ -8,6 +8,7 @@ if (typeof kmlLayers === 'undefined') {
 
 let navigationMap;
 let routeData = null;
+let waypointIndexMap = []; // [{ name, index, position:[lng,lat] }]
 let drivingInstance = null;
 let routePolyline = null;
 let startMarker = null;
@@ -1708,7 +1709,7 @@ function updateNavigationTip() {
             const target = turnSequence[turnSeqPtr];
             directionType = target.type || 'straight';
             distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, target.index) || 0;
-            // 特殊规则："掉头"仅在接近时提示；远离时优先展示后续的非掉头转向，否则显示直行
+            // 特殊规则："掉头"仅在接近且附近存在未达途径点时提示；否则优先展示后续的非掉头转向/直行
             if (directionType === 'uturn') {
                 let uturnNear = 20; // 默认接近掉头提示距离
                 try {
@@ -1717,7 +1718,18 @@ function updateNavigationTip() {
                     }
                 } catch (e) {}
 
-                if (!isFinite(distanceToNext) || distanceToNext > uturnNear) {
+                // 结合途径点：只有当附近有未到达途径点且距离小于触发阈值时，才优先展示掉头
+                let wptTrigger = 18; // 触发掉头的途径点接近阈值
+                try {
+                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.waypointUturnTriggerMeters === 'number') {
+                        wptTrigger = MapConfig.navigationConfig.waypointUturnTriggerMeters;
+                    }
+                } catch (e) {}
+                const nearestWptDist = getNearestUnvisitedWaypointDistanceMeters(currPos, navigationPath, waypointIndexMap);
+
+                const allowUturn = isFinite(nearestWptDist) && nearestWptDist <= wptTrigger;
+
+                if (!allowUturn || !isFinite(distanceToNext) || distanceToNext > uturnNear) {
                     // 查找下一个非掉头的转向项
                     let found = null;
                     for (let j = turnSeqPtr + 1; j < turnSequence.length; j++) {
@@ -3096,6 +3108,11 @@ function startRealNavigationTracking() {
         }
     } catch (e) { turnSequence = []; turnSeqPtr = 0; }
 
+    // 构建途径点索引映射（用于到达判定与掉头提示抑制）
+    try {
+        waypointIndexMap = buildWaypointIndexMap(navigationPath, routeData && routeData.waypoints);
+    } catch (e) { waypointIndexMap = []; }
+
     try {
         totalRouteDistance = typeof routePolyline.getLength === 'function' ? routePolyline.getLength() : 0;
     } catch (e) {
@@ -3396,6 +3413,8 @@ function startRealNavigationTracking() {
                     findNextTurnPoint();
                 }
 
+                // 先判定是否到达途径点（基于沿路网距离）
+                try { markWaypointArrivalIfNeeded(lastRenderPosNav || curr, fullPath); } catch (e) {}
                 updateNavigationTip();
             } else {
                 // 未到起点时，仅刷新“请前往起点”的提示卡片
@@ -3425,6 +3444,61 @@ function startRealNavigationTracking() {
         },
         options
     );
+}
+
+// ====== 途径点索引映射与到达判定 ======
+function buildWaypointIndexMap(path, waypoints) {
+    const mapArr = [];
+    if (!Array.isArray(path) || path.length < 2 || !Array.isArray(waypoints) || waypoints.length === 0) return mapArr;
+    waypoints.forEach(wp => {
+        const name = (wp && wp.name) ? wp.name : (typeof wp === 'string' ? wp : '');
+        const pos = (wp && wp.position) ? wp.position : (wp && Array.isArray(wp) ? wp : null);
+        if (!pos) return;
+        const proj = projectPointOntoPathMeters(pos, path);
+        if (proj && typeof proj.index === 'number') {
+            mapArr.push({ name, index: Math.max(0, Math.min(path.length - 1, proj.index + (proj.t >= 0.5 ? 1 : 0))), position: normalizeLngLat(pos) });
+        }
+    });
+    // 按索引升序，保持途径点行进顺序
+    mapArr.sort((a, b) => a.index - b.index);
+    return mapArr;
+}
+
+function getNearestUnvisitedWaypointDistanceMeters(currPos, path, wptMap) {
+    if (!Array.isArray(path) || path.length < 2 || !Array.isArray(wptMap) || wptMap.length === 0) return Infinity;
+    const proj = projectPointOntoPathMeters(currPos, path);
+    if (!proj) return Infinity;
+    let best = Infinity;
+    for (const w of wptMap) {
+        if (!w || visitedWaypoints.has(w.name)) continue;
+        if (typeof w.index !== 'number') continue;
+        if (w.index <= proj.index) continue; // 仅考虑前方的未达途径点
+        const d = computeDistanceToIndexMeters(currPos, path, w.index) || Infinity;
+        if (isFinite(d) && d < best) best = d;
+    }
+    return best;
+}
+
+function markWaypointArrivalIfNeeded(currPos, path) {
+    if (!Array.isArray(path) || path.length < 2 || !Array.isArray(waypointIndexMap) || waypointIndexMap.length === 0) return;
+    let arriveThresh = 15; // 默认15米
+    try {
+        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.waypointArrivalDistanceMeters === 'number') {
+            arriveThresh = MapConfig.navigationConfig.waypointArrivalDistanceMeters;
+        }
+    } catch (e) {}
+    const proj = projectPointOntoPathMeters(currPos, path);
+    if (!proj) return;
+    for (const w of waypointIndexMap) {
+        if (!w || visitedWaypoints.has(w.name)) continue;
+        if (typeof w.index !== 'number') continue;
+        // 只考虑当前投影之后的小段
+        const d = computeDistanceToIndexMeters(currPos, path, w.index) || Infinity;
+        if (isFinite(d) && d <= arriveThresh) {
+            visitedWaypoints.add(w.name);
+            try { console.log('到达途径点:', w.name); } catch (e) {}
+        }
+    }
 }
 
 function stopRealNavigationTracking() {
