@@ -2559,8 +2559,8 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
             navTipCard.style.backgroundColor = '#fff3cd'; // 淡黄色背景提示偏离
         }
 
-        // 不 return；允许后续逻辑继续以便保持卡片的标准样式结构（但已隐藏详情）
-        // 注意：不再覆盖距离到路口的显示，避免误导
+        // 这里直接返回，避免后续正常导航逻辑覆盖图标与文案
+        return;
     }
 
     // 正常导航逻辑（未偏离路径时）
