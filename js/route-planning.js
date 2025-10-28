@@ -69,8 +69,23 @@ function calculateRoute() {
     document.getElementById('route-btn').innerHTML = '<i class="fas fa-spinner fa-spin"></i> 规划中...';
     document.getElementById('route-btn').disabled = true;
 
-    // 使用 Dijkstra 算法进行 KML 路径规划
-    performKMLOnlyRouting(start, end);
+    // 检查是否有途径点
+    const waypointNames = [];
+    const waypointsContainer = document.getElementById('waypoints-container');
+    if (waypointsContainer) {
+        const inputs = waypointsContainer.querySelectorAll('.waypoint-input');
+        inputs.forEach(input => {
+            const v = (input && input.value) ? input.value.trim() : '';
+            if (v) waypointNames.push(v);
+        });
+    }
+
+    if (waypointNames.length > 0) {
+        performKMLRoutingWithWaypoints(start, waypointNames, end);
+    } else {
+        // 使用 Dijkstra 算法进行 KML 路径规划（无途径点）
+        performKMLOnlyRouting(start, end);
+    }
 }
 
 function performKMLOnlyRouting(start, end) {
@@ -105,6 +120,89 @@ function performKMLOnlyRouting(start, end) {
             showRouteFailureMessage();
         }
     });
+}
+
+// 按顺序（起点→途径点们→终点）进行KML规划与拼接
+function performKMLRoutingWithWaypoints(startName, waypointNames, endName) {
+    // 将所有地址解析为坐标
+    const names = [startName, ...waypointNames, endName];
+    resolveAddressesToCoords(names, function(coordsArr) {
+        if (!coordsArr) {
+            showRouteFailureMessage();
+            return;
+        }
+
+        // 依次规划每一段并拼接
+        let totalDistance = 0;
+        let combinedPath = [];
+
+        const planNext = (i) => {
+            if (i >= coordsArr.length - 1) {
+                // 全部完成
+                const routeResult = { path: combinedPath, distance: totalDistance };
+                displayKMLRoute(routeResult);
+                showKMLRouteInfo(routeResult);
+                // 恢复按钮状态
+                document.getElementById('route-btn').innerHTML = '路线规划';
+                document.getElementById('route-btn').disabled = false;
+                document.getElementById('start-nav-btn').disabled = false;
+                return;
+            }
+
+            const a = coordsArr[i];
+            const b = coordsArr[i + 1];
+            const seg = planKMLRoute(a, b);
+            if (!seg || !seg.path || seg.path.length < 2) {
+                showRouteFailureMessage();
+                return;
+            }
+            // 拼接路径，避免连接处重复点
+            if (combinedPath.length === 0) {
+                combinedPath = seg.path.slice();
+            } else {
+                const toAppend = seg.path.slice(1); // 跳过首点
+                combinedPath = combinedPath.concat(toAppend);
+            }
+            totalDistance += (seg.distance || 0);
+            planNext(i + 1);
+        };
+
+        planNext(0);
+    });
+}
+
+// 将一组地点名称按顺序解析为坐标数组
+function resolveAddressesToCoords(names, callback) {
+    if (!Array.isArray(names) || names.length < 2) {
+        callback(null);
+        return;
+    }
+    const coords = new Array(names.length);
+    let idx = 0;
+
+    const next = () => {
+        if (idx >= names.length) {
+            // 所有解析完成
+            if (coords.every(c => Array.isArray(c) && c.length >= 2)) {
+                callback(coords);
+            } else {
+                callback(null);
+            }
+            return;
+        }
+        const name = names[idx];
+        getCoordinatesFromAddress(name, function(coord) {
+            if (!coord) {
+                callback(null);
+                return;
+            }
+            coords[idx] = coord;
+            idx++;
+            next();
+        });
+    };
+
+    next();
 }
 
 function showRouteFailureMessage() {
