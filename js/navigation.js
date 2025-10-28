@@ -8,6 +8,7 @@ if (typeof kmlLayers === 'undefined') {
 
 let navigationMap;
 let routeData = null;
+let hasUpdatedMyLocationStart = false; // 标记是否已经更新过"我的位置"起点
 let waypointIndexMap = []; // [{ name, index, position:[lng,lat] }]
 let drivingInstance = null;
 let routePolyline = null;
@@ -509,7 +510,81 @@ function loadRouteData() {
 
         if (storedData) {
             routeData = JSON.parse(storedData);
-            console.log('路线数据:', routeData);
+            console.log('原始路线数据:', routeData);
+
+            // 检查并修复"我的位置"的坐标问题
+            // 如果起点是"我的位置"且坐标是[0,0]（临时占位符），使用当前位置
+            if (routeData.start && routeData.start.name === '我的位置') {
+                const startPos = routeData.start.position;
+                if (!startPos || (startPos[0] === 0 && startPos[1] === 0)) {
+                    console.log('检测到"我的位置"使用临时坐标，等待获取实际位置');
+                    // 标记起点为"我的位置"
+                    routeData.start.isMyLocation = true;
+
+                    // 尝试从sessionStorage读取首页保存的当前位置
+                    let savedPosition = null;
+                    try {
+                        const savedPosStr = sessionStorage.getItem('currentPosition');
+                        if (savedPosStr) {
+                            savedPosition = JSON.parse(savedPosStr);
+                            console.log('从sessionStorage读取到首页保存的位置:', savedPosition);
+                        }
+                    } catch (e) {
+                        console.warn('读取sessionStorage中的currentPosition失败:', e);
+                    }
+
+                    // 检查是否已经有当前位置（从sessionStorage或全局变量）
+                    if (savedPosition && Array.isArray(savedPosition) && savedPosition.length === 2 &&
+                        savedPosition[0] !== 0 && savedPosition[1] !== 0) {
+                        console.log('使用从sessionStorage读取的位置:', savedPosition);
+                        routeData.start.position = savedPosition;
+                    } else if (typeof currentPosition !== 'undefined' && currentPosition &&
+                        currentPosition.length === 2 &&
+                        currentPosition[0] !== 0 && currentPosition[1] !== 0) {
+                        console.log('使用全局currentPosition:', currentPosition);
+                        routeData.start.position = currentPosition;
+                    } else {
+                        // 如果还没有获取到位置，先使用默认位置，等待实时定位更新
+                        console.log('暂时使用默认位置，等待实时定位');
+                        routeData.start.position = MapConfig.defaultCenter;
+                    }
+                }
+            }
+
+            // 同样检查终点（虽然通常不会是"我的位置"，但保险起见）
+            if (routeData.end && routeData.end.name === '我的位置') {
+                const endPos = routeData.end.position;
+                if (!endPos || (endPos[0] === 0 && endPos[1] === 0)) {
+                    console.log('终点也是"我的位置"，使用当前位置');
+                    routeData.end.isMyLocation = true;
+
+                    // 尝试从sessionStorage读取首页保存的当前位置
+                    let savedPosition = null;
+                    try {
+                        const savedPosStr = sessionStorage.getItem('currentPosition');
+                        if (savedPosStr) {
+                            savedPosition = JSON.parse(savedPosStr);
+                            console.log('从sessionStorage读取到首页保存的位置:', savedPosition);
+                        }
+                    } catch (e) {
+                        console.warn('读取sessionStorage中的currentPosition失败:', e);
+                    }
+
+                    if (savedPosition && Array.isArray(savedPosition) && savedPosition.length === 2 &&
+                        savedPosition[0] !== 0 && savedPosition[1] !== 0) {
+                        console.log('使用从sessionStorage读取的位置:', savedPosition);
+                        routeData.end.position = savedPosition;
+                    } else if (typeof currentPosition !== 'undefined' && currentPosition &&
+                        currentPosition.length === 2 &&
+                        currentPosition[0] !== 0 && currentPosition[1] !== 0) {
+                        routeData.end.position = currentPosition;
+                    } else {
+                        routeData.end.position = MapConfig.defaultCenter;
+                    }
+                }
+            }
+
+            console.log('修正后路线数据:', routeData);
 
             // 更新界面显示
             updateNavigationUI();
@@ -923,26 +998,31 @@ function addRouteMarkers(startLngLat, endLngLat) {
         endMarker = null;
     }
 
-    // 根据起点是否为“我的位置”选择不同的图标
+    // 检查起点是否为"我的位置"
     const isMyLocationStart = routeData?.start?.name === '我的位置' || routeData?.start?.isMyLocation === true;
-    // 为“我的位置”使用导航目录下的圆形图标（居中对齐），否则使用针状起点图标（尖端对齐）
-    const startIcon = new AMap.Icon({
-        size: isMyLocationStart ? new AMap.Size(30, 30) : new AMap.Size(30, 38),
-        image: isMyLocationStart
-            ? MapConfig.markerStyles.currentLocation.icon
-            : 'images/工地数字导航小程序切图/司机/2X/地图icon/起点.png',
-        imageSize: isMyLocationStart ? new AMap.Size(30, 30) : new AMap.Size(30, 38)
-    });
 
-    startMarker = new AMap.Marker({
-        position: startLngLat,
-        icon: startIcon,
-        // “我的位置”圆形图标用居中对齐；起点针状用尖端对齐
-        offset: isMyLocationStart ? new AMap.Pixel(-15, -15) : new AMap.Pixel(-15, -38),
-        zIndex: 100,
-        map: navigationMap,
-        title: routeData?.start?.name || '起点'
-    });
+    // 如果起点是"我的位置"，不创建起点标记（GPS实时追踪会显示动态位置标记）
+    if (!isMyLocationStart) {
+        // 创建起点标记（针状图标，尖端对齐）
+        const startIcon = new AMap.Icon({
+            size: new AMap.Size(30, 38),
+            image: 'images/工地数字导航小程序切图/司机/2X/地图icon/起点.png',
+            imageSize: new AMap.Size(30, 38)
+        });
+
+        startMarker = new AMap.Marker({
+            position: startLngLat,
+            icon: startIcon,
+            offset: new AMap.Pixel(-15, -38),
+            zIndex: 100,
+            map: navigationMap,
+            title: routeData?.start?.name || '起点'
+        });
+
+        console.log('起点标记已添加:', routeData?.start?.name);
+    } else {
+        console.log('起点是"我的位置"，跳过创建起点标记（将使用GPS实时位置标记）');
+    }
 
     // 创建终点标记（使用本地"终点.png"）
     const endIcon = new AMap.Icon({
@@ -960,7 +1040,7 @@ function addRouteMarkers(startLngLat, endLngLat) {
         title: routeData?.end?.name || '终点'
     });
 
-    console.log('起点和终点标记已添加');
+    console.log('终点标记已添加:', routeData?.end?.name);
 }
 
 // 添加途经点标记
@@ -4133,6 +4213,9 @@ function startRealtimePositionTracking() {
 
             const curr = [lng, lat];
             console.log('当前位置:', curr);
+
+            // 注意:起点坐标已在loadRouteData()阶段从sessionStorage读取并修正,
+            // 这里不需要再次更新,避免重复规划路线
 
             // 获取GPS精度并更新精度圈
             const accuracy = pos.coords.accuracy || 10; // 默认10米

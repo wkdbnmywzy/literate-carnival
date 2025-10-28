@@ -175,6 +175,14 @@ function getCurrentLocation() {
 
             currentPosition = [lng, lat];
 
+            // 保存当前位置到sessionStorage供导航页面使用
+            try {
+                sessionStorage.setItem('currentPosition', JSON.stringify(currentPosition));
+                console.log('已保存当前位置到sessionStorage:', currentPosition);
+            } catch (e) {
+                console.warn('保存当前位置到sessionStorage失败:', e);
+            }
+
             // 更新地图中心和缩放级别
             map.setZoomAndCenter(15, [lng, lat]);
 
@@ -304,6 +312,14 @@ function startRealtimeLocationTracking() {
 
             const curr = [lng, lat];
             currentPosition = curr;
+
+            // 保存当前位置到sessionStorage供导航页面使用
+            try {
+                sessionStorage.setItem('currentPosition', JSON.stringify(currentPosition));
+                console.log('已保存当前位置到sessionStorage:', currentPosition);
+            } catch (e) {
+                console.warn('保存当前位置到sessionStorage失败:', e);
+            }
 
             // 开启实时定位时，移除一次性初始定位标记，避免重复
             if (initialLocationMarker) {
@@ -493,6 +509,14 @@ function startRealtimeLocationTracking() {
 
             const curr = [lng, lat];
             currentPosition = curr;
+
+            // 保存当前位置到sessionStorage供导航页面使用
+            try {
+                sessionStorage.setItem('currentPosition', JSON.stringify(currentPosition));
+                console.log('已保存当前位置到sessionStorage:', currentPosition);
+            } catch (e) {
+                console.warn('保存当前位置到sessionStorage失败:', e);
+            }
 
             // 开启实时定位时，移除一次性初始定位标记，避免重复
             if (initialLocationMarker) {
