@@ -757,9 +757,15 @@ function selectLocationFromPicker(locationText, locationItem) {
     }
 
     // 如果是"我的位置"，则使用当前定位
-    if (locationText === '我的位置' && typeof currentPosition !== 'undefined') {
+    if (locationText === '我的位置') {
         console.log('使用当前位置');
-        // 可以在这里添加使用当前位置的逻辑
+        // 确保currentPosition已定义且有效
+        if (typeof currentPosition !== 'undefined' && currentPosition && currentPosition.length === 2) {
+            console.log('当前位置坐标:', currentPosition);
+        } else {
+            console.warn('当前位置未定义或无效，将尝试获取位置');
+            // 可以在这里添加获取当前位置的逻辑
+        }
     } else {
         // 如果不是"我的位置"，从历史记录或KML中获取完整信息
         const historyItem = searchHistory.find(h => h.name === locationText);
@@ -1256,8 +1262,14 @@ function completeRouteSelection() {
 // 获取地点的坐标位置
 function getLocationPosition(locationName) {
     // 如果是"我的位置"，使用当前位置
-    if (locationName === '我的位置' && typeof currentPosition !== 'undefined') {
-        return currentPosition;
+    if (locationName === '我的位置') {
+        if (typeof currentPosition !== 'undefined' && currentPosition && currentPosition.length === 2) {
+            console.log('获取我的位置坐标:', currentPosition);
+            return currentPosition;
+        } else {
+            console.warn('我的位置坐标无效:', currentPosition);
+            return null;
+        }
     }
 
     // 从搜索历史中查找
@@ -1287,11 +1299,12 @@ function validateAndGetPosition(locationName) {
 
     // 如果是"我的位置"，使用当前位置
     if (locationName === '我的位置') {
-        if (typeof currentPosition !== 'undefined' && currentPosition) {
-            console.log('验证通过: 我的位置');
+        if (typeof currentPosition !== 'undefined' && currentPosition && currentPosition.length === 2) {
+            console.log('验证通过: 我的位置, 坐标:', currentPosition);
             return currentPosition;
         } else {
-            console.warn('我的位置未定位');
+            console.warn('我的位置未定位或坐标无效:', currentPosition);
+            alert('我的位置坐标无效，请确保已开启定位权限');
             return null;
         }
     }

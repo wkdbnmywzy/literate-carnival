@@ -1,6 +1,9 @@
 // kml-handler.js
 // KML文件导入、解析和显示功能（支持KML原生样式）
 
+// 全局变量跟踪当前激活的marker（使用名称标识，避免对象引用问题）
+let activeMarkerName = null;
+
 function initKMLImport() {
     const importBtn = document.getElementById('import-btn');
     const fileInput = document.getElementById('file-input');
@@ -827,7 +830,7 @@ function displayKMLFeatures(features, fileName) {
     });
 
     // 3. 最后显示点（zIndex: 100，最上层）
-    points.forEach((feature) => {
+    points.forEach((feature, index) => {
         const featureCoordinates = [feature.geometry.coordinates];
         allCoordinates.push(...featureCoordinates);
 
@@ -847,12 +850,31 @@ function displayKMLFeatures(features, fileName) {
             description: feature.description
         });
 
-        // 添加点击事件 - 切换图标状态
-        marker.on('click', function() {
-            toggleIconState(marker);
-        });
-
         layerMarkers.push(marker);
+
+        // 延迟绑定DOM事件（等marker渲染到DOM后）
+        setTimeout(function() {
+            const markerDom = marker.getContentDom();
+            if (markerDom) {
+                const iconDiv = markerDom.querySelector('.kml-icon-marker');
+                if (iconDiv) {
+                    iconDiv.addEventListener('click', function(e) {
+                        console.log('DOM点击事件触发，点位名称:', feature.name);
+                        e.stopPropagation(); // 阻止冒泡
+
+                        // 标记这是marker点击事件
+                        window._markerClicked = true;
+
+                        toggleIconState(marker);
+
+                        setTimeout(function() {
+                            window._markerClicked = false;
+                        }, 10);
+                    });
+                    console.log('已为点位绑定DOM点击事件:', feature.name);
+                }
+            }
+        }, 100);
     });
 
     // 保存图层信息
@@ -900,6 +922,24 @@ function displayKMLFeatures(features, fileName) {
 
     // 保存分割后的完整要素数据（包括分割后的线段）
     saveProcessedKMLData(features, fileName);
+
+    // 添加地图点击事件监听器，点击地图其他地方时恢复marker为默认状态
+    if (map && !map._kmlClickListenerAdded) {
+        map.on('click', function(e) {
+            // 检查是否是marker点击事件，如果是则不处理
+            if (window._markerClicked) {
+                return;
+            }
+
+            // 如果有激活的marker，根据名称恢复为默认状态
+            if (activeMarkerName) {
+                resetMarkerStateByName(activeMarkerName);
+                activeMarkerName = null;
+            }
+        });
+        map._kmlClickListenerAdded = true; // 标记已添加，避免重复添加
+        console.log('已添加地图点击监听器：点击地图空白处恢复marker状态');
+    }
 }
 
 // 保存结构化KML数据到sessionStorage
@@ -1021,54 +1061,103 @@ function fitMapToCoordinates(coordinates) {
     }, 100);
 }
 
-function createPointMarkerContent(name, index, style) {
-    // 支持从样式覆盖默认颜色
-    const bgColor = style?.color || MapConfig.markerStyles.point.background;
-    const textColor = style?.textColor || MapConfig.markerStyles.point.color;
-    
-    return `
-        <div style="
-            background: ${bgColor};
-            color: ${textColor};
-            border-radius: 50%;
-            width: ${MapConfig.markerStyles.point.size}px;
-            height: ${MapConfig.markerStyles.point.size}px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-            font-weight: bold;
-            border: 2px solid white;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        ">
-            ${index}
-        </div>
-    `;
-}
-
-// 切换图标状态（down/up）
+// 切换图标状态（down/up）- 单击切换，再次单击或点击其他地方恢复
 function toggleIconState(marker) {
-    const content = marker.getContent();
-    if (typeof content === 'string') {
-        const div = document.createElement('div');
-        div.innerHTML = content;
-        const iconDiv = div.querySelector('.kml-icon-marker');
+    console.log('toggleIconState 被调用');
+
+    // 直接从DOM获取元素，而不是从字符串重新解析
+    const markerDom = marker.getContentDom();
+    if (markerDom) {
+        const iconDiv = markerDom.querySelector('.kml-icon-marker');
 
         if (iconDiv) {
             const currentState = iconDiv.dataset.state;
             const iconType = iconDiv.dataset.iconType;
             const name = iconDiv.dataset.name;
 
-            // 切换状态
-            const newState = currentState === 'down' ? 'up' : 'down';
-            const newIconPath = getIconPath(iconType, newState);
+            console.log('当前状态:', currentState, '图标类型:', iconType, '名称:', name);
+            console.log('activeMarkerName === name:', activeMarkerName === name);
 
-            // 更新图标
-            const img = iconDiv.querySelector('img');
-            if (img) {
-                img.src = newIconPath;
-                iconDiv.dataset.state = newState;
-                marker.setContent(div.innerHTML);
+            // 如果当前marker已经是激活状态（up），则恢复为默认状态（down）
+            if (activeMarkerName === name && currentState === 'up') {
+                console.log('恢复为默认状态');
+                // 恢复为down状态（默认状态）
+                const newIconPath = getIconPath(iconType, 'down');
+                const img = iconDiv.querySelector('img');
+                if (img) {
+                    img.src = newIconPath;
+                    iconDiv.dataset.state = 'down';
+                    console.log('图标已恢复为down:', newIconPath);
+                }
+                activeMarkerName = null;
+                return;
+            }
+
+            // 如果有其他marker处于激活状态，先恢复它
+            if (activeMarkerName && activeMarkerName !== name) {
+                console.log('恢复之前的marker:', activeMarkerName);
+                resetMarkerStateByName(activeMarkerName);
+            }
+
+            // 切换当前marker状态：down -> up
+            if (currentState === 'down') {
+                console.log('切换为up状态');
+                const newIconPath = getIconPath(iconType, 'up');
+                const img = iconDiv.querySelector('img');
+                if (img) {
+                    img.src = newIconPath;
+                    iconDiv.dataset.state = 'up';
+                    console.log('图标已更新为:', newIconPath);
+                }
+                activeMarkerName = name;
+            }
+        }
+    }
+}
+
+// 恢复marker为默认状态（down）
+function resetMarkerState(marker) {
+    if (!marker) return;
+
+    // 直接从DOM获取元素，而不是从字符串重新解析
+    const markerDom = marker.getContentDom();
+    if (markerDom) {
+        const iconDiv = markerDom.querySelector('.kml-icon-marker');
+
+        if (iconDiv) {
+            const currentState = iconDiv.dataset.state;
+            const iconType = iconDiv.dataset.iconType;
+
+            if (currentState === 'up') {
+                const newIconPath = getIconPath(iconType, 'down');
+                const img = iconDiv.querySelector('img');
+                if (img) {
+                    img.src = newIconPath;
+                    iconDiv.dataset.state = 'down';
+                    console.log('重置marker为down状态:', iconDiv.dataset.name);
+                }
+            }
+        }
+    }
+}
+
+// 根据名称恢复marker为默认状态
+function resetMarkerStateByName(markerName) {
+    if (!markerName) return;
+
+    // 在所有KML图层中查找对应名称的marker
+    if (kmlLayers && kmlLayers.length > 0) {
+        for (const layer of kmlLayers) {
+            if (!layer.visible || !layer.markers) continue;
+
+            for (const marker of layer.markers) {
+                if (!marker || typeof marker.getExtData !== 'function') continue;
+
+                const extData = marker.getExtData();
+                if (extData && extData.name === markerName) {
+                    resetMarkerState(marker);
+                    return;
+                }
             }
         }
     }
