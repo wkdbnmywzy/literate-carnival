@@ -1456,6 +1456,8 @@ let nextTurnIndex = -1; // 下一个转向点的索引
 let turnSequence = [];
 let turnSeqPtr = 0; // 指向未通过的下一个转向在 turnSequence 中的下标
 let hasReachedStart = false; // 是否已到达起点附近并正式开始沿路网导航
+// 通过一个转向后，为避免紧邻路口连跳，短暂抑制下一条指示（时间门槛）
+let postTurnGateUntilTime = 0;
 
 // 工业运输车速度配置（单位：米/小时）
 const VEHICLE_SPEED = 10000; // 10km/h，约为工业运输车的平均速度
@@ -1700,6 +1702,13 @@ function updateNavigationTip() {
     let directionType = 'straight';
     let distanceToNext = 0;
     let usedPrecomputed = false;
+    // 若处于“转向完成后抑制窗口”，短暂只展示直行，避免连续路口连跳
+    try {
+        if (postTurnGateUntilTime && Date.now() < postTurnGateUntilTime) {
+            updateDirectionIcon('forward', 0);
+            return;
+        }
+    } catch (e) {}
     try {
         let enablePrecomputed = true;
         if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.usePrecomputedManeuvers === 'boolean') {
@@ -2029,7 +2038,14 @@ function buildTurnSequence(path) {
     }
 
     // 可选：去抖紧邻拐点（如相距<6m 的连续候选只保留角度更大的一个）
-    const MIN_TURN_GAP_M = 6;
+    let MIN_TURN_GAP_M = 6;
+    try {
+        if (MapConfig && MapConfig.navigationConfig) {
+            if (typeof MapConfig.navigationConfig.turnMergeMinGapMeters === 'number') {
+                MIN_TURN_GAP_M = MapConfig.navigationConfig.turnMergeMinGapMeters;
+            }
+        }
+    } catch (e) {}
     const pruned = [];
     for (let i = 0; i < seq.length; i++) {
         const curr = seq[i];
@@ -3400,6 +3416,14 @@ function startRealNavigationTracking() {
                             } else {
                                 nextTurnIndex = fullPath.length - 1;
                             }
+                            // 设置“转向后抑制窗口”，避免紧邻路口连续弹提示
+                            try {
+                                let gateMs = 1500; // 默认1.5秒
+                                if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.postTurnNextPromptMinTimeMs === 'number') {
+                                    gateMs = MapConfig.navigationConfig.postTurnNextPromptMinTimeMs;
+                                }
+                                postTurnGateUntilTime = Date.now() + Math.max(0, gateMs);
+                            } catch (e) { postTurnGateUntilTime = Date.now() + 1500; }
                             advanced = true;
                         }
                     }
