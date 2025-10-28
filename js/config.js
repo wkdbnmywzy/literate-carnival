@@ -112,6 +112,10 @@ const MapConfig = {
         turnPromptDistanceMeters: 40,
         // 超过该距离时，不优先提示“掉头”，而优先展示后续非掉头的转向或直行（单位：米）
         uturnPromptDistanceMeters: 20,
+        // 判定“到达途径点”的沿路网距离阈值（米）
+        waypointArrivalDistanceMeters: 15,
+        // 仅当接近未到达的途径点时才允许显示“掉头”提示（米）
+        waypointUturnTriggerMeters: 18,
         // 提示模式：'path'（基于路网，默认）或 'heading'（基于用户朝向）
         promptMode: 'path'
     }
