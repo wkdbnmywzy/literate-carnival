@@ -1778,6 +1778,20 @@ function updateNavigationTip() {
         [userMarker.getPosition().lng, userMarker.getPosition().lat] :
         navigationPath[Math.max(0, currentNavigationIndex)];
 
+    // 以“分段（起点→下一未达途径点 / 终点）”为单位限制提示，只考虑当前分段内的转向
+    let legEndIndex = (navigationPath && navigationPath.length > 0) ? navigationPath.length - 1 : 0;
+    try {
+        if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0) {
+            const projLeg = projectPointOntoPathMeters(currPos, navigationPath);
+            const currIdxLeg = (projLeg && typeof projLeg.index === 'number') ? projLeg.index : 0;
+            for (const w of waypointIndexMap) {
+                if (!w || visitedWaypoints.has(w.name)) continue;
+                if (typeof w.index !== 'number') continue;
+                if (w.index > currIdxLeg) { legEndIndex = Math.min(legEndIndex, w.index); break; }
+            }
+        }
+    } catch (e) {}
+
     // 首选：使用预计算转向序列（基于规划路径）
     let directionType = 'straight';
     let distanceToNext = 0;
@@ -1796,8 +1810,14 @@ function updateNavigationTip() {
         }
         if (enablePrecomputed && turnSequence && turnSequence.length > 0 && turnSeqPtr < turnSequence.length) {
             const target = turnSequence[turnSeqPtr];
-            directionType = target.type || 'straight';
-            distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, target.index) || 0;
+            // 若下一个预计算转向超出本分段（到下一未达途径点/终点），则本分段内不再提示后续转向，仅提示直行至分段终点
+            if (typeof target.index === 'number' && target.index > legEndIndex) {
+                directionType = 'forward';
+                distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, legEndIndex) || 0;
+                usedPrecomputed = true;
+            } else {
+                directionType = target.type || 'straight';
+                distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, target.index) || 0;
             // 特殊规则："掉头"仅在接近且附近存在未达途径点时提示；否则优先展示后续的非掉头转向/直行
             if (directionType === 'uturn') {
                 let uturnNear = 20; // 默认接近掉头提示距离
@@ -1824,30 +1844,23 @@ function updateNavigationTip() {
                     for (let j = turnSeqPtr + 1; j < turnSequence.length; j++) {
                         if (turnSequence[j].type !== 'uturn') { found = turnSequence[j]; break; }
                     }
-                    if (found) {
+                    if (found && typeof found.index === 'number' && found.index <= legEndIndex) {
                         const dist2 = computeDistanceToIndexMeters(currPos, navigationPath, found.index) || 0;
                         if (isFinite(dist2) && dist2 > 0) {
                             directionType = found.type;
                             distanceToNext = dist2;
                         } else {
-                            // 没有更好的候选，则保持直行
+                            // 没有更好的候选，则保持直行，展示到分段终点距离
                             directionType = 'forward';
-                            // 重新估算一个“前方路口”的距离用于展示，避免显示到途径点/掉头的距离
-                            const projForTip = projectPointOntoPathMeters(currPos, navigationPath);
-                            const startIdxForTip = Math.max(currentNavigationIndex || 0, (projForTip && typeof projForTip.index === 'number') ? projForTip.index : 0);
-                            const junction = findNextJunctionAhead(currPos, navigationPath, startIdxForTip);
-                            distanceToNext = junction ? Math.round(junction.distance || 0) : 0;
+                            distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, legEndIndex) || 0;
                         }
                     } else {
-                        // 后续没有非掉头的动作，保持直行
+                        // 后续没有非掉头的动作，或已越出分段，保持直行，展示到分段终点距离
                         directionType = 'forward';
-                        // 重新估算一个“前方路口”的距离用于展示，避免显示到途径点/掉头的距离
-                        const projForTip = projectPointOntoPathMeters(currPos, navigationPath);
-                        const startIdxForTip = Math.max(currentNavigationIndex || 0, (projForTip && typeof projForTip.index === 'number') ? projForTip.index : 0);
-                        const junction = findNextJunctionAhead(currPos, navigationPath, startIdxForTip);
-                        distanceToNext = junction ? Math.round(junction.distance || 0) : 0;
+                        distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, legEndIndex) || 0;
                     }
                 }
+            }
             }
             usedPrecomputed = true;
         }
@@ -1858,7 +1871,7 @@ function updateNavigationTip() {
         const projForTip = projectPointOntoPathMeters(currPos, navigationPath);
         const startIdxForTip = Math.max(currentNavigationIndex || 0, (projForTip && typeof projForTip.index === 'number') ? projForTip.index : 0);
         const junction = findNextJunctionAhead(currPos, navigationPath, startIdxForTip);
-        if (junction) {
+        if (junction && typeof junction.index === 'number' && junction.index <= legEndIndex) {
             const angle = junction.angle;
             if (angle > 135 || angle < -135) directionType = 'uturn';
             else if (angle > 30 && angle <= 135) directionType = 'right';
@@ -1866,22 +1879,9 @@ function updateNavigationTip() {
             else directionType = 'straight';
             distanceToNext = Math.round(junction.distance || 0);
         } else {
-            directionType = getNavigationDirection();
-            if (nextTurnIndex > 0 && nextTurnIndex < navigationPath.length) {
-                distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, nextTurnIndex) || 0;
-                if (!isFinite(distanceToNext) || distanceToNext <= 0) {
-                    for (let i = currentNavigationIndex; i < nextTurnIndex; i++) {
-                        if (i + 1 < navigationPath.length) {
-                            distanceToNext += calculateDistanceBetweenPoints(
-                                navigationPath[i],
-                                navigationPath[i + 1]
-                            );
-                        }
-                    }
-                }
-            } else {
-                distanceToNext = remainingDistance;
-            }
+            // 分段内没有合适的路口，按“直行至分段终点”展示
+            directionType = 'forward';
+            distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, legEndIndex) || remainingDistance;
         }
     }
 
@@ -3486,9 +3486,24 @@ function startRealNavigationTracking() {
                     // 使用预计算序列推进
                     let advanced = false;
                     if (!isOffRoute && turnSequence && turnSequence.length > 0 && turnSeqPtr < turnSequence.length) {
+                        // 仅在当前“分段”（到下一未达途径点/终点）内推进转向指针
+                        let legEndIndex = (fullPath && fullPath.length > 0) ? fullPath.length - 1 : 0;
+                        try {
+                            if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0) {
+                                const projLeg = projectPointOntoPathMeters(lastRenderPosNav || curr, fullPath);
+                                const currIdxLeg = (projLeg && typeof projLeg.index === 'number') ? projLeg.index : 0;
+                                for (const w of waypointIndexMap) {
+                                    if (!w || visitedWaypoints.has(w.name)) continue;
+                                    if (typeof w.index !== 'number') continue;
+                                    if (w.index > currIdxLeg) { legEndIndex = Math.min(legEndIndex, w.index); break; }
+                                }
+                            }
+                        } catch (e) {}
+
                         const targetIdx = turnSequence[turnSeqPtr].index;
-                        const distToTurn = computeDistanceToIndexMeters(lastRenderPosNav || curr, fullPath, targetIdx) || 0;
-                        if (isFinite(distToTurn) && distToTurn <= passTurnThreshold) {
+                        if (typeof targetIdx === 'number' && targetIdx <= legEndIndex) {
+                            const distToTurn = computeDistanceToIndexMeters(lastRenderPosNav || curr, fullPath, targetIdx) || 0;
+                            if (isFinite(distToTurn) && distToTurn <= passTurnThreshold) {
                             // 通过当前转向，推进到下一个
                             turnSeqPtr = Math.min(turnSeqPtr + 1, turnSequence.length);
                             if (turnSeqPtr < turnSequence.length) {
@@ -3505,6 +3520,7 @@ function startRealNavigationTracking() {
                                 postTurnGateUntilTime = Date.now() + Math.max(0, gateMs);
                             } catch (e) { postTurnGateUntilTime = Date.now() + 1500; }
                             advanced = true;
+                            }
                         }
                     }
                     // 兼容：若未启用序列或未推进，依旧使用 nextTurnIndex 距离判断
@@ -3610,6 +3626,24 @@ function markWaypointArrivalIfNeeded(currPos, path) {
             try { console.log('到达途径点:', w.name); } catch (e) {}
         }
     }
+}
+
+// 计算当前“分段”的终点索引：返回“下一未达途径点”的路径索引；若不存在则返回终点索引
+function getNextLegEndIndexForPos(currPos, path, wptMap) {
+    if (!Array.isArray(path) || path.length < 2) return 0;
+    let legEnd = path.length - 1;
+    try {
+        const proj = projectPointOntoPathMeters(currPos, path);
+        const currIdx = (proj && typeof proj.index === 'number') ? proj.index : 0;
+        if (Array.isArray(wptMap) && wptMap.length > 0) {
+            for (const w of wptMap) {
+                if (!w || visitedWaypoints.has(w.name)) continue;
+                if (typeof w.index !== 'number') continue;
+                if (w.index > currIdx) { legEnd = Math.min(legEnd, w.index); break; }
+            }
+        }
+    } catch (e) {}
+    return legEnd;
 }
 
 function stopRealNavigationTracking() {
