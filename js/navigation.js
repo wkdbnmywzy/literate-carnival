@@ -1743,10 +1743,20 @@ function updateNavigationTip() {
                         } else {
                             // 没有更好的候选，则保持直行
                             directionType = 'forward';
+                            // 重新估算一个“前方路口”的距离用于展示，避免显示到途径点/掉头的距离
+                            const projForTip = projectPointOntoPathMeters(currPos, navigationPath);
+                            const startIdxForTip = Math.max(currentNavigationIndex || 0, (projForTip && typeof projForTip.index === 'number') ? projForTip.index : 0);
+                            const junction = findNextJunctionAhead(currPos, navigationPath, startIdxForTip);
+                            distanceToNext = junction ? Math.round(junction.distance || 0) : 0;
                         }
                     } else {
                         // 后续没有非掉头的动作，保持直行
                         directionType = 'forward';
+                        // 重新估算一个“前方路口”的距离用于展示，避免显示到途径点/掉头的距离
+                        const projForTip = projectPointOntoPathMeters(currPos, navigationPath);
+                        const startIdxForTip = Math.max(currentNavigationIndex || 0, (projForTip && typeof projForTip.index === 'number') ? projForTip.index : 0);
+                        const junction = findNextJunctionAhead(currPos, navigationPath, startIdxForTip);
+                        distanceToNext = junction ? Math.round(junction.distance || 0) : 0;
                     }
                 }
             }
@@ -2511,31 +2521,28 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     if (isOffRoute) {
         console.log('updateDirectionIcon: 检测到偏离路径，显示提示信息');
 
-        // 隐藏图标
+        // 显示图标容器并使用“直行”图标，避免整块提示“空白”
         if (directionIconContainer) {
-            directionIconContainer.style.display = 'none';
+            directionIconContainer.style.display = 'flex';
+        }
+        if (directionImg) {
+            directionImg.src = basePath + '直行.png';
+            directionImg.alt = '直行';
+            directionImg.style.transform = 'none';
         }
 
-        // 隐藏距离和时间信息
+        // 隐藏距离和时间信息，仅保留主提示文案
         if (tipDetailsElem) {
             tipDetailsElem.style.display = 'none';
         }
-
-        // 隐藏分隔线
         if (tipDividerElem) {
             tipDividerElem.style.display = 'none';
         }
 
         // 根据是否到达起点显示不同的提示
-        let tipPrefix = '请';
-        let tipText = '';
-        if (!hasReachedStart) {
-            tipText = '前往起点';
-        } else {
-            tipText = '回到规划路线';
-        }
+        const tipPrefix = '';
+        const tipText = !hasReachedStart ? '请前往起点' : '请回到规划路线';
 
-        // 显示偏离提示
         if (distanceAheadElem) {
             distanceAheadElem.textContent = tipPrefix;
         }
@@ -2552,8 +2559,8 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
             navTipCard.style.backgroundColor = '#fff3cd'; // 淡黄色背景提示偏离
         }
 
-        console.log('已更新UI显示偏离提示:', tipPrefix + tipText);
-        return;  // 偏离路径时直接返回，不执行后续正常导航的逻辑
+        // 不 return；允许后续逻辑继续以便保持卡片的标准样式结构（但已隐藏详情）
+        // 注意：不再覆盖距离到路口的显示，避免误导
     }
 
     // 正常导航逻辑（未偏离路径时）
