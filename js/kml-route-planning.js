@@ -202,8 +202,8 @@ function addEdge(startId, endId, distance, coordinates) {
         return;
     }
 
-    // 检查是否为极短的无效边（小于2厘米）
-    if (distance < 0.02) {
+    // 检查是否为极短的无效边（小于0.1米）
+    if (distance < 0.1) {
         console.warn(`检测到极短边，已跳过 (节点${startId}->${endId}, 距离${distance.toFixed(4)}米) - 可能是交点计算误差`);
         return;
     }
@@ -781,12 +781,13 @@ function planKMLRoute(startCoordinate, endCoordinate) {
 
     let actualStartNodeId = null;
     let actualEndNodeId = null;
+    let needRebuildGraph = false; // 标记是否需要重建图
 
     // 处理起点
     const startEdge = startSegment.edge;
     const startInfo = startSegment.info;
 
-    // 检查投影点是否在线段端点附近
+    // 检查��影点是否在线段端点附近
     if (startInfo.isAtStart) {
         // 投影点在线段起点，直接使用边的起点节点
         actualStartNodeId = startEdge.start;
@@ -795,53 +796,64 @@ function planKMLRoute(startCoordinate, endCoordinate) {
         actualStartNodeId = startEdge.end;
     } else {
         // 投影点在线段中间，需要分割边并创建新节点
+        // 确保投影点格式为对象
+        const projPoint = Array.isArray(startSegment.projectionPoint)
+            ? {lng: startSegment.projectionPoint[0], lat: startSegment.projectionPoint[1]}
+            : startSegment.projectionPoint;
+
         const tempStartNode = {
             id: kmlNodes.length,
-            lng: startSegment.projectionPoint.lng,
-            lat: startSegment.projectionPoint.lat
+            lng: projPoint.lng,
+            lat: projPoint.lat
         };
         kmlNodes.push(tempStartNode);
         actualStartNodeId = tempStartNode.id;
 
         // 分割边
-        splitEdgeAtPoint(startEdge, startSegment.projectionPoint, tempStartNode, startInfo.segmentIndex);
+        splitEdgeAtPoint(startEdge, projPoint, tempStartNode, startInfo.segmentIndex);
+        needRebuildGraph = true; // 标记需要重建
     }
 
     // 处理终点
     const endEdge = endSegment.edge;
     const endInfo = endSegment.info;
 
-    // 获取边的实际起点和终点坐标
-    const edgeStartNode = kmlNodes.find(n => n.id === endEdge.start);
-    const edgeEndNode = kmlNodes.find(n => n.id === endEdge.end);
+    console.log(`终点投影信息: isAtStart=${endInfo.isAtStart}, isAtEnd=${endInfo.isAtEnd}, t=${endInfo.t}`);
 
-    // 不依赖isAtStart/isAtEnd，而是计算投影点到边的起点和终点的实际距离
-    const distToStart = edgeStartNode ? calculateDistance(endSegment.projectionPoint, edgeStartNode) : Infinity;
-    const distToEnd = edgeEndNode ? calculateDistance(endSegment.projectionPoint, edgeEndNode) : Infinity;
-    const threshold = 0.5; // 0.5米容差
-
-    if (distToStart < threshold) {
-        // 投影点非常接近边的起点
+    // 优先使用投影信息中的端点标志
+    if (endInfo.isAtStart) {
+        // 投影点在线段起点
+        console.log(`终点在边起点，使用节点${endEdge.start}`);
         actualEndNodeId = endEdge.start;
-    } else if (distToEnd < threshold) {
-        // 投影点非常接近边的终点
+    } else if (endInfo.isAtEnd) {
+        // 投影点在线段终点
+        console.log(`终点在边终点，使用节点${endEdge.end}`);
         actualEndNodeId = endEdge.end;
     } else {
         // 投影点在线段中间，需要分割边
+        // 确保投影点格式为对象
+        const projPoint = Array.isArray(endSegment.projectionPoint)
+            ? {lng: endSegment.projectionPoint[0], lat: endSegment.projectionPoint[1]}
+            : endSegment.projectionPoint;
+
         const tempEndNode = {
             id: kmlNodes.length,
-            lng: endSegment.projectionPoint.lng,
-            lat: endSegment.projectionPoint.lat
+            lng: projPoint.lng,
+            lat: projPoint.lat
         };
         kmlNodes.push(tempEndNode);
         actualEndNodeId = tempEndNode.id;
 
         // 分割边
-        splitEdgeAtPoint(endEdge, endSegment.projectionPoint, tempEndNode, endInfo.segmentIndex);
+        splitEdgeAtPoint(endEdge, projPoint, tempEndNode, endInfo.segmentIndex);
+        needRebuildGraph = true; // 标记需要重建
     }
 
     // 重新构建邻接表（如果创建了新节点）
-    kmlGraph = buildAdjacencyList();
+    if (needRebuildGraph) {
+        kmlGraph = buildAdjacencyList();
+        console.log(`已重建邻接表，起点${actualStartNodeId}邻居数: ${kmlGraph[actualStartNodeId]?.length || 0}, 终点${actualEndNodeId}邻居数: ${kmlGraph[actualEndNodeId]?.length || 0}`);
+    }
 
     console.log('准备使用Dijkstra算法:', {
         起点节点ID: actualStartNodeId,
@@ -853,14 +865,34 @@ function planKMLRoute(startCoordinate, endCoordinate) {
     });
 
     // 使用Dijkstra算法计算路径
-    const result = dijkstra(actualStartNodeId, actualEndNodeId);
+    let result = dijkstra(actualStartNodeId, actualEndNodeId);
 
+    // 如果正向查找失败，尝试反向查找
     if (!result) {
-        console.error('Dijkstra算法未找到连接路径');
-        return null;
+        console.warn('正向Dijkstra未找到路径，尝试反向查找...');
+        const reverseResult = dijkstra(actualEndNodeId, actualStartNodeId);
+
+        if (reverseResult) {
+            console.log('反向查找成功！自动反转路径返回');
+
+            // 反转路径
+            const reversedPath = [];
+            for (let i = reverseResult.path.length - 1; i >= 0; i--) {
+                reversedPath.push(reverseResult.path[i]);
+            }
+
+            // 用反转后的路径替换result
+            result = {
+                path: reversedPath,
+                distance: reverseResult.distance
+            };
+        } else {
+            console.error('正向和反向都未找到路径');
+            return null;
+        }
     }
 
-    console.log(`Dijkstra算法返回路径，共${result.path.length}个点，总距离${result.distance.toFixed(2)}米`);
+    console.log(`路径规划完成，共${result.path.length}个点，总距离${result.distance.toFixed(2)}米`);
 
     // 验证路径中的所有坐标
     const validPath = [];
@@ -899,6 +931,12 @@ function splitEdgeAtPoint(edge, point, newNode, segmentIndex) {
         return;
     }
 
+    // 验证point格式
+    if (!point || (point.lng === undefined || point.lat === undefined)) {
+        console.error('splitEdgeAtPoint: 无效的point格式', point);
+        return;
+    }
+
     // 获取边的起点和终点节点ID
     const edgeStartNodeId = edge.start;
     const edgeEndNodeId = edge.end;
@@ -906,25 +944,62 @@ function splitEdgeAtPoint(edge, point, newNode, segmentIndex) {
     // 找到分割点在坐标数组中的位置
     const coords = edge.coordinates;
 
+    // 辅助函数：安全地提取坐标
+    const extractCoord = (c) => {
+        if (!c) return null;
+        if (c.lng !== undefined && c.lat !== undefined) {
+            return {lng: c.lng, lat: c.lat};
+        } else if (Array.isArray(c) && c.length >= 2) {
+            return {lng: c[0], lat: c[1]};
+        }
+        console.error('无效的坐标格式:', c);
+        return null;
+    };
+
     // 创建两段新的坐标数组
     // 第一段：从边起点到投影点
-    const coords1 = coords.slice(0, segmentIndex + 1);
+    const coords1 = [];
+    for (let i = 0; i <= segmentIndex; i++) {
+        const coord = extractCoord(coords[i]);
+        if (coord) {
+            coords1.push(coord);
+        }
+    }
     coords1.push({lng: point.lng, lat: point.lat});
 
     // 第二段：从投影点到边终点
     const coords2 = [{lng: point.lng, lat: point.lat}];
-    coords2.push(...coords.slice(segmentIndex + 1));
+    for (let i = segmentIndex + 1; i < coords.length; i++) {
+        const coord = extractCoord(coords[i]);
+        if (coord) {
+            coords2.push(coord);
+        }
+    }
+
+    // 验证坐标数组
+    if (coords1.length < 2 || coords2.length < 2) {
+        console.error('分割后坐标不足:', {coords1长度: coords1.length, coords2长度: coords2.length});
+        return;
+    }
 
     // 计算两段的距离
     let dist1 = 0;
     for (let i = 0; i < coords1.length - 1; i++) {
-        dist1 += calculateDistance(coords1[i], coords1[i + 1]);
+        const d = calculateDistance(coords1[i], coords1[i + 1]);
+        if (!isNaN(d) && isFinite(d)) {
+            dist1 += d;
+        }
     }
 
     let dist2 = 0;
     for (let i = 0; i < coords2.length - 1; i++) {
-        dist2 += calculateDistance(coords2[i], coords2[i + 1]);
+        const d = calculateDistance(coords2[i], coords2[i + 1]);
+        if (!isNaN(d) && isFinite(d)) {
+            dist2 += d;
+        }
     }
+
+    console.log(`分割边距离: 第一段${dist1.toFixed(2)}米, 第二段${dist2.toFixed(2)}米`);
 
     // 移除原边
     const edgeIndex = kmlEdges.indexOf(edge);
