@@ -116,6 +116,16 @@ const MapConfig = {
         waypointArrivalDistanceMeters: 15,
         // 仅当接近未到达的途径点时才允许显示“掉头”提示（米）
         waypointUturnTriggerMeters: 18,
+        // 连续路口的提示合并最小间距（米）：小于该值的相邻拐点会被合并，避免抖动
+        // 如需让短路径连续左/右都能提示，可调小（例如 3）
+        turnMergeMinGapMeters: 3,
+        // 短路径转弯识别的最小线段长度（米）：过大可能忽略短拐点
+        // 若短拐点经常不提示，可调到 1~2 米
+        minSegmentLengthMeters: 1.5,
+        // 转向角度阈值（度），小于该角度视为直行
+        turnAngleThresholdDegrees: 28,
+        // 通过一个转向后，最少等待多久再显示下一条指示（毫秒），避免连跳
+        postTurnNextPromptMinTimeMs: 1500,
         // 提示模式：'path'（基于路网，默认）或 'heading'（基于用户朝向）
         promptMode: 'path'
     }
