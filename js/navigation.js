@@ -2984,10 +2984,7 @@ function startSimulatedNavigation() {
     let w = (iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
     let h = (iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
 
-    // 确保图标是正方形,避免椭圆变形
-    const size = Math.max(w, h);
-    w = size;
-    h = size;
+    // 保持原图比例，不强制转换为正方形
 
     let iconImage = iconCfg.icon;
     // 如果开启箭头模式或 PNG 未配置，则改用 SVG 箭头，以确保旋转效果明显
@@ -3381,10 +3378,7 @@ function startRealNavigationTracking() {
                 let w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
                 let h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
 
-                // 确保图标是正方形,避免椭圆变形
-                const size = Math.max(w, h);
-                w = size;
-                h = size;
+                // 保持原图比例，不强制转换为正方形
 
                 // 使用配置的图标或SVG箭头
                 let iconImage = iconCfg && iconCfg.icon ? iconCfg.icon : null;
@@ -4417,10 +4411,7 @@ function startRealtimePositionTracking() {
                 let w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
                 let h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
 
-                // 确保图标是正方形,避免椭圆变形
-                const size = Math.max(w, h);
-                w = size;
-                h = size;
+                // 保持原图比例，不强制转换为正方形
 
                 // 使用配置的图标或SVG箭头
                 let iconImage = iconCfg && iconCfg.icon ? iconCfg.icon : null;

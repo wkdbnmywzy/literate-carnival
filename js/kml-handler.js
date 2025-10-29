@@ -840,7 +840,7 @@ function displayKMLFeatures(features, fileName) {
             map: map,
             title: feature.name,
             content: createNamedPointMarkerContent(feature.name, feature.geometry.style),
-            offset: new AMap.Pixel(-16, -35),  // 调整offset让点位在图标和文字之间
+            offset: new AMap.Pixel(-12, -31),  // 调整offset让点位在图标和文字之间（适配24px默认图标）
             zIndex: 100
         });
 
@@ -1087,6 +1087,9 @@ function toggleIconState(marker) {
                 if (img) {
                     img.src = newIconPath;
                     iconDiv.dataset.state = 'down';
+                    // 恢复为默认大小：24px
+                    iconDiv.style.width = '24px';
+                    iconDiv.style.height = '24px';
                     console.log('图标已恢复为down:', newIconPath);
                 }
                 activeMarkerName = null;
@@ -1107,6 +1110,9 @@ function toggleIconState(marker) {
                 if (img) {
                     img.src = newIconPath;
                     iconDiv.dataset.state = 'up';
+                    // 放大为选中大小：40px
+                    iconDiv.style.width = '40px';
+                    iconDiv.style.height = '40px';
                     console.log('图标已更新为:', newIconPath);
                 }
                 activeMarkerName = name;
@@ -1134,6 +1140,9 @@ function resetMarkerState(marker) {
                 if (img) {
                     img.src = newIconPath;
                     iconDiv.dataset.state = 'down';
+                    // 恢复为默认大小：24px
+                    iconDiv.style.width = '24px';
+                    iconDiv.style.height = '24px';
                     console.log('重置marker为down状态:', iconDiv.dataset.name);
                 }
             }
@@ -1196,7 +1205,7 @@ function isPointSelectable(name) {
 }
 
 // 获取图标路径
-function getIconPath(iconType, state = 'up') {
+function getIconPath(iconType, state = 'down') {
     const iconMap = {
         'entrance': '出入口',
         'yard': '堆场',
@@ -1205,7 +1214,9 @@ function getIconPath(iconType, state = 'up') {
     };
 
     const iconName = iconMap[iconType] || iconMap['building'];
-    return `images/工地数字导航小程序切图/图标/${iconName}-${state}.png`;
+    // 交换状态：原来的up现在作为默认状态，原来的down现在作为选中状态
+    const actualState = state === 'up' ? 'down' : 'up';
+    return `images/工地数字导航小程序切图/图标/${iconName}-${actualState}.png`;
 }
 
 // 获取标签样式（根据图标类型）
@@ -1270,8 +1281,8 @@ function createNamedPointMarkerContent(name, style) {
                  data-state="down"
                  data-name="${name}"
                  style="
-                    width: 32px;
-                    height: 32px;
+                    width: 24px;
+                    height: 24px;
                     cursor: ${selectable ? 'pointer' : 'default'};
                     transition: all 0.2s ease;
                     margin-bottom: -4px;
