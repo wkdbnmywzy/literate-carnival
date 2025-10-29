@@ -878,7 +878,7 @@ function drawKMLRoute(routeResult) {
         routePolyline = new AMap.Polyline({
             path: path,
             strokeColor: '#00C853',     // 标准导航绿色
-            strokeWeight: 8,             // 与规划页保持一致的线宽
+            strokeWeight: 16,            // 增加到原来的2倍 (原8 → 16)
             strokeOpacity: 1.0,          // 保持不透明，增强可读性
             lineJoin: 'round',
             lineCap: 'round',
@@ -941,7 +941,7 @@ function drawStraightLine(start, end) {
     routePolyline = new AMap.Polyline({
         path: [start, end],
         strokeColor: '#00C853',
-        strokeWeight: 4, // 与首页KML线宽一致
+        strokeWeight: 8, // 增加到原来的2倍 (原4 → 8)
         strokeOpacity: 0.9,
         lineJoin: 'round',
         lineCap: 'round',
@@ -1835,10 +1835,13 @@ function updateNavigationTip() {
         }
     }
 
-    // 计算剩余距离
-    let remainingDistance = 0;
+    // 计算剩余距离: 直接使用routePolyline.getLength()获取准确距离
+    // 改进: routePolyline已在updatePathSegments()中更新为[当前投影点→当前目标点]
+    // 因此getLength()返回的就是到当前目标点(途径点/终点)的准确距离
+
+    let distanceToCurrentTarget = 0;
     if (routePolyline && typeof routePolyline.getLength === 'function') {
-        remainingDistance = routePolyline.getLength();
+        distanceToCurrentTarget = routePolyline.getLength();
     }
 
     // 更新上方提示卡片的"剩余"距离
@@ -1846,11 +1849,11 @@ function updateNavigationTip() {
     const remainingUnitElem = document.getElementById('tip-remaining-unit');
 
     if (remainingDistanceElem && remainingUnitElem) {
-        if (remainingDistance < 1000) {
-            remainingDistanceElem.textContent = Math.round(remainingDistance);
+        if (distanceToCurrentTarget < 1000) {
+            remainingDistanceElem.textContent = Math.round(distanceToCurrentTarget);
             remainingUnitElem.textContent = 'm';
         } else {
-            remainingDistanceElem.textContent = (remainingDistance / 1000).toFixed(1);
+            remainingDistanceElem.textContent = (distanceToCurrentTarget / 1000).toFixed(1);
             remainingUnitElem.textContent = 'km';
         }
     }
@@ -1858,7 +1861,7 @@ function updateNavigationTip() {
     // 估算剩余时间（按工业运输车速度10km/h）
     const estimatedTimeElem = document.getElementById('tip-estimated-time');
     if (estimatedTimeElem) {
-        const hours = remainingDistance / VEHICLE_SPEED;
+        const hours = distanceToCurrentTarget / VEHICLE_SPEED;
         const minutes = Math.ceil(hours * 60);
         estimatedTimeElem.textContent = minutes;
     }
@@ -1867,19 +1870,13 @@ function updateNavigationTip() {
     const destinationDistanceElem = document.getElementById('destination-distance');
     const destinationTimeElem = document.getElementById('destination-time');
 
-    // 计算到当前目标点的距离
-    let distanceToTarget = remainingDistance; // 默认使用到终点的总距离
-    if (currentTargetPoint && userMarker) {
-        const currPos = [userMarker.getPosition().lng, userMarker.getPosition().lat];
-        distanceToTarget = getDistanceToCurrentTarget(currPos, navigationPath);
-    }
-
+    // 改进: 上下方都使用routePolyline.getLength(),确保100%一致且准确
     if (destinationDistanceElem) {
-        destinationDistanceElem.textContent = Math.round(distanceToTarget);
+        destinationDistanceElem.textContent = Math.round(distanceToCurrentTarget);
     }
 
     if (destinationTimeElem) {
-        const hours = distanceToTarget / VEHICLE_SPEED;
+        const hours = distanceToCurrentTarget / VEHICLE_SPEED;
         const minutes = Math.ceil(hours * 60);
         destinationTimeElem.textContent = minutes;
     }
@@ -2189,13 +2186,14 @@ function getAngleAtIndex(path, idx) {
     return calculateTurnAngle(path[prevIdx], path[mid], path[nextIdx]);
 }
 
-// 基于规划路径预计算完整的转向序列
-// 返回数组: [{ index, angle, type } ...]，index 为路径中的“转向中心点”索引
+// 基于规划路径预计算完整的转向序列(改进版:检测更多弯道)
+// 返回数组: [{ index, angle, type } ...]，index 为路径中的"转向中心点"索引
 function buildTurnSequence(path) {
     const seq = [];
     if (!path || path.length < 3) return seq;
 
-    let TURN_ANGLE_THRESHOLD = 28; // 默认转向角度（度）
+    // 降低角度阈值以检测更多弯道(从28度降低到15度)
+    let TURN_ANGLE_THRESHOLD = 15; // 改进:降低默认转向角度阈值
     let MIN_SEGMENT_LEN_M = 3;     // 最小线段长度（米）
     try {
         if (MapConfig && MapConfig.navigationConfig) {
@@ -2208,7 +2206,7 @@ function buildTurnSequence(path) {
         }
     } catch (e) {}
 
-    // 预扫描，生成候选
+    // 预扫描，生成候选(改进:使用更短的线段检查以捕获更多弯道)
     for (let i = 1; i < path.length - 1; i++) {
         const segLenPrev = calculateDistanceBetweenPoints(path[i - 1], path[i]);
         const segLenNext = calculateDistanceBetweenPoints(path[i], path[i + 1]);
@@ -2218,6 +2216,8 @@ function buildTurnSequence(path) {
         const p2 = path[i];
         const p3 = (i + 2 < path.length) ? path[i + 2] : path[i + 1];
         const angle = calculateTurnAngle(p1, p2, p3);
+
+        // 改进:降低角度阈值,检测更多转向
         if (Math.abs(angle) > TURN_ANGLE_THRESHOLD) {
             let type = 'straight';
             if (angle > 135 || angle < -135) type = 'uturn';
@@ -2228,8 +2228,8 @@ function buildTurnSequence(path) {
         }
     }
 
-    // 可选：去抖紧邻拐点（如相距<6m 的连续候选只保留角度更大的一个）
-    let MIN_TURN_GAP_M = 6;
+    // 改进:降低去抖间距,保留更多转向点(从6米降低到4米)
+    let MIN_TURN_GAP_M = 4;
     try {
         if (MapConfig && MapConfig.navigationConfig) {
             if (typeof MapConfig.navigationConfig.turnMergeMinGapMeters === 'number') {
@@ -2245,7 +2245,7 @@ function buildTurnSequence(path) {
         // 估算 index 距离
         const approxDist = computeDistanceToIndexMeters(path[prev.index], path, curr.index);
         if (isFinite(approxDist) && approxDist < MIN_TURN_GAP_M) {
-            // 保留“绝对角度”更大的一个
+            // 保留"绝对角度"更大的一个
             if (Math.abs(curr.angle) > Math.abs(prev.angle)) {
                 pruned[pruned.length - 1] = curr;
             }
@@ -2254,6 +2254,7 @@ function buildTurnSequence(path) {
         }
     }
 
+    console.log('检测到转向点数量:', pruned.length, '个');
     return pruned;
 }
 
@@ -2852,11 +2853,11 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     }
 
 
-    // 更新提示文本
+    // 更新提示文本 - 优化版:明确显示动作词
     if (effectiveDirection === 'straight' || effectiveDirection === 'forward') {
-        // 直行/前进时显示："XXX 米"
+        // 直行/前进时显示:"直行 XXX 米" (改进:始终显示"直行"动作)
         if (distanceAheadElem) {
-            distanceAheadElem.textContent = distance;
+            distanceAheadElem.textContent = '直行 ' + distance;
         }
         if (actionText) {
             actionText.textContent = '米';
@@ -2866,7 +2867,7 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
             distanceUnitElem.style.display = 'none';
         }
     } else {
-        // 其他转向显示："XXX 米后 左转/右转/掉头/后退"
+        // 其他转向显示:"XXX 米后 左转/右转/掉头/后退"
         if (distanceAheadElem) {
             distanceAheadElem.textContent = distance;
         }
@@ -2980,8 +2981,13 @@ function startSimulatedNavigation() {
 
     // 使用与首页相同的带方向箭头图标
     const iconCfg = MapConfig.markerStyles.headingLocation || {};
-    const w = (iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-    const h = (iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
+    let w = (iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
+    let h = (iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
+
+    // 确保图标是正方形,避免椭圆变形
+    const size = Math.max(w, h);
+    w = size;
+    h = size;
 
     let iconImage = iconCfg.icon;
     // 如果开启箭头模式或 PNG 未配置，则改用 SVG 箭头，以确保旋转效果明显
@@ -2992,7 +2998,8 @@ function startSimulatedNavigation() {
     const myIcon = new AMap.Icon({
         size: new AMap.Size(w, h),
         image: iconImage,
-        imageSize: new AMap.Size(w, h)
+        imageSize: new AMap.Size(w, h),
+        imageOffset: new AMap.Pixel(0, 0)  // 确保图像不偏移
     });
     userMarker = new AMap.Marker({
         position: path[0],
@@ -3049,7 +3056,7 @@ function updateAccuracyCircle(position, accuracy) {
                 fillOpacity: 0.15,            // 高透明度填充
                 zIndex: 100,                  // 在路径上方，位置标记下方
                 bubble: true,                 // 允许事件冒泡
-                visible: true                 // 显式设置为可见
+                visible: false                // 隐藏精度圈
             });
 
             // 显式添加到地图
@@ -3371,8 +3378,13 @@ function startRealNavigationTracking() {
             if (!userMarker) {
                 // 使用与首页相同的配置
                 const iconCfg = MapConfig.markerStyles.headingLocation;
-                const w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-                const h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
+                let w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
+                let h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
+
+                // 确保图标是正方形,避免椭圆变形
+                const size = Math.max(w, h);
+                w = size;
+                h = size;
 
                 // 使用配置的图标或SVG箭头
                 let iconImage = iconCfg && iconCfg.icon ? iconCfg.icon : null;
@@ -3385,7 +3397,8 @@ function startRealNavigationTracking() {
                 const myIcon = new AMap.Icon({
                     size: new AMap.Size(w, h),
                     image: iconImage,
-                    imageSize: new AMap.Size(w, h)
+                    imageSize: new AMap.Size(w, h),
+                    imageOffset: new AMap.Pixel(0, 0)  // 确保图像不偏移
                 });
 
                 userMarker = new AMap.Marker({
@@ -4050,26 +4063,43 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         }
     }
 
-    // 构建剩余路径（绿色）
+    // 构建剩余路径（绿色）- 改进: 只到当前目标点，而非最终终点
     let remainingPath = [];
 
+    // 确定终点索引: 如果有当前目标点(途径点),则只画到途径点; 否则画到最终终点
+    let endIndex = fullPath.length - 1; // 默认到最终终点
+    try {
+        if (currentTargetPoint && currentTargetPoint.type === 'waypoint' && typeof currentTargetPoint.index === 'number') {
+            // 有途径点: 绿线只画到当前途径点
+            endIndex = Math.min(currentTargetPoint.index, fullPath.length - 1);
+            console.log('绿线终点: 途径点', currentTargetPoint.name, '索引:', endIndex);
+        } else {
+            console.log('绿线终点: 最终终点 索引:', endIndex);
+        }
+    } catch (e) {
+        console.error('确定终点索引失败:', e);
+    }
+
     if (onRoute) {
-        // 简化逻辑：剩余路径 = [投影点] + 该段终点及之后的所有节点
-        remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1)));
+        // 剩余路径 = [投影点] + [该段终点...endIndex的所有节点]
+        const sliceEnd = Math.min(endIndex + 1, fullPath.length);
+        remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1), sliceEnd));
         if (remainingPath.length < 2) {
-            remainingPath = [routePoint, fullPath[fullPath.length - 1]];
+            remainingPath = [routePoint, fullPath[endIndex]];
         }
     } else {
-        // 偏离路径时：不要把绿线恢复为整条路径，而是仍然从“回到路线的接入点”（投影点）开始画
+        // 偏离路径时：从投影点画到endIndex
         if (routePoint) {
-            remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1)));
+            const sliceEnd = Math.min(endIndex + 1, fullPath.length);
+            remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1), sliceEnd));
         } else {
             // 若无投影点退化为从最近索引处开始
             const startIdx = Math.max(0, Math.min(fullPath.length - 1, segIndex));
-            remainingPath = [fullPath[startIdx]].concat(fullPath.slice(startIdx + 1));
+            const sliceEnd = Math.min(endIndex + 1, fullPath.length);
+            remainingPath = [fullPath[startIdx]].concat(fullPath.slice(startIdx + 1, sliceEnd));
         }
         if (remainingPath.length < 2 && fullPath.length >= 2) {
-            remainingPath = [fullPath[0], fullPath[fullPath.length - 1]];
+            remainingPath = [fullPath[0], fullPath[endIndex]];
         }
     }
 
@@ -4384,8 +4414,13 @@ function startRealtimePositionTracking() {
 
                 // 使用与首页相同的配置
                 const iconCfg = MapConfig.markerStyles.headingLocation;
-                const w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-                const h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
+                let w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
+                let h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
+
+                // 确保图标是正方形,避免椭圆变形
+                const size = Math.max(w, h);
+                w = size;
+                h = size;
 
                 // 使用配置的图标或SVG箭头
                 let iconImage = iconCfg && iconCfg.icon ? iconCfg.icon : null;
@@ -4401,7 +4436,8 @@ function startRealtimePositionTracking() {
                 const myIcon = new AMap.Icon({
                     size: new AMap.Size(w, h),
                     image: iconImage,
-                    imageSize: new AMap.Size(w, h)
+                    imageSize: new AMap.Size(w, h),
+                    imageOffset: new AMap.Pixel(0, 0)  // 确保图像不偏移
                 });
 
                 console.log('AMap.Icon创建成功');
