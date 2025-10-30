@@ -1738,44 +1738,26 @@ function updateDestinationInfo() {
 
     // 使用当前目标点（如果未初始化，默认使用终点）
     let targetName = routeData.end.name || '目的地';
+    let targetType = 'end';
+    let waypointIndex = -1;
+
     if (currentTargetPoint) {
         targetName = currentTargetPoint.name;
+        targetType = currentTargetPoint.type;
+        if (targetType === 'waypoint' && Array.isArray(waypointIndexMap)) {
+            // 找到这是第几个途径点（从1开始计数）
+            waypointIndex = waypointIndexMap.findIndex(wp => wp && wp.name === targetName);
+        }
     }
 
-    // 尝试从KML数据中获取详细信息
-    let orgName = '';
-    let description = '';
-
-    // 从KML图层中查找目标点的详细信息
-    if (typeof kmlLayers !== 'undefined' && kmlLayers && kmlLayers.length > 0) {
-        for (const layer of kmlLayers) {
-            if (!layer.visible) continue;
-
-            for (const marker of layer.markers) {
-                if (!marker || typeof marker.getExtData !== 'function') {
-                    continue;
-                }
-
-                const extData = marker.getExtData();
-                if (extData && extData.name === targetName) {
-                    // 找到匹配的KML点
-                    description = extData.description || '';
-
-                    // 尝试从描述中提取组织名称
-                    if (description) {
-                        const parts = description.split(/[,，;；]/);
-                        if (parts.length > 1) {
-                            orgName = parts[0].trim();
-                        }
-                    }
-
-                    console.log('从KML获取目标点信息:', { name: targetName, org: orgName, desc: description });
-                    break;
-                }
-            }
-
-            if (orgName) break;
-        }
+    // 构建标签文本：起点/途径点N/终点
+    let labelText = '';
+    if (targetType === 'start') {
+        labelText = '起点';
+    } else if (targetType === 'waypoint') {
+        labelText = '途径点' + (waypointIndex >= 0 ? (waypointIndex + 1) : '');
+    } else {
+        labelText = '终点';
     }
 
     // 更新DOM元素
@@ -1783,17 +1765,15 @@ function updateDestinationInfo() {
     const destinationNameElem = document.getElementById('destination-name');
 
     if (destinationOrgElem) {
-        if (orgName) {
-            destinationOrgElem.textContent = orgName;
-            destinationOrgElem.style.display = 'block';
-        } else {
-            destinationOrgElem.style.display = 'none';
-        }
+        destinationOrgElem.textContent = labelText;
+        destinationOrgElem.style.display = 'block';
     }
 
     if (destinationNameElem) {
         destinationNameElem.textContent = targetName;
     }
+
+    console.log('更新目的地信息:', { type: targetType, label: labelText, name: targetName, index: waypointIndex });
 }
 
 // 显示导航提示卡片
@@ -1987,9 +1967,9 @@ function updateNavigationTip() {
             else directionType = 'straight';
             distanceToNext = Math.round(junction.distance || 0);
         } else {
-            // 分段内没有合适的路口，按“直行至分段终点”展示
+            // 分段内没有合适的路口，按"直行至分段终点"展示
             directionType = 'forward';
-            distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, legEndIndex) || remainingDistance;
+            distanceToNext = computeDistanceToIndexMeters(currPos, navigationPath, legEndIndex) || distanceToCurrentTarget;
         }
     }
 
@@ -2192,8 +2172,8 @@ function buildTurnSequence(path) {
     const seq = [];
     if (!path || path.length < 3) return seq;
 
-    // 降低角度阈值以检测更多弯道(从28度降低到15度)
-    let TURN_ANGLE_THRESHOLD = 15; // 改进:降低默认转向角度阈值
+    // 提高角度阈值将环道视为直道(从15度提高到45度)
+    let TURN_ANGLE_THRESHOLD = 45; // 改进:提高默认转向角度阈值，将缓弯和环道视为直道
     let MIN_SEGMENT_LEN_M = 3;     // 最小线段长度（米）
     try {
         if (MapConfig && MapConfig.navigationConfig) {
@@ -2217,7 +2197,7 @@ function buildTurnSequence(path) {
         const p3 = (i + 2 < path.length) ? path[i + 2] : path[i + 1];
         const angle = calculateTurnAngle(p1, p2, p3);
 
-        // 改进:降低角度阈值,检测更多转向
+        // 只有超过阈值的明显转向才记录(环道等缓弯会被过滤)
         if (Math.abs(angle) > TURN_ANGLE_THRESHOLD) {
             let type = 'straight';
             if (angle > 135 || angle < -135) type = 'uturn';
@@ -2729,7 +2709,7 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     if (isOffRoute) {
         console.log('updateDirectionIcon: 检测到偏离路径，显示提示信息');
 
-        // 显示图标容器并使用“直行”图标，避免整块提示“空白”
+        // 显示图标容器并使用"直行"图标，避免整块提示"空白"
         if (directionIconContainer) {
             directionIconContainer.style.display = 'flex';
         }
@@ -2761,21 +2741,10 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
             distanceUnitElem.style.display = 'none';
         }
 
-        // 添加偏离路线的视觉提示（改变背景色）
-        const navTipCard = document.getElementById('navigation-tip-card');
-        if (navTipCard) {
-            navTipCard.style.backgroundColor = '#fff3cd'; // 淡黄色背景提示偏离
-        }
+        // 不改变背景色，保持蓝色一致性
 
         // 这里直接返回，避免后续正常导航逻辑覆盖图标与文案
         return;
-    }
-
-    // 正常导航逻辑（未偏离路径时）
-    // 恢复正常背景色
-    const navTipCard = document.getElementById('navigation-tip-card');
-    if (navTipCard) {
-        navTipCard.style.backgroundColor = ''; // 恢复默认背景色
     }
     // 显示图标
     if (directionIconContainer) {
@@ -2853,11 +2822,11 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     }
 
 
-    // 更新提示文本 - 优化版:明确显示动作词
+    // 更新提示文本
     if (effectiveDirection === 'straight' || effectiveDirection === 'forward') {
-        // 直行/前进时显示:"直行 XXX 米" (改进:始终显示"直行"动作)
+        // 直行/前进时显示:"沿当前道路行驶 XXX 米"
         if (distanceAheadElem) {
-            distanceAheadElem.textContent = '直行 ' + distance;
+            distanceAheadElem.textContent = '沿当前道路行驶 ' + distance;
         }
         if (actionText) {
             actionText.textContent = '米';
@@ -3428,23 +3397,43 @@ function startRealNavigationTracking() {
                 }
             } catch (e) { /* 吸附失败则退回原始位置 */ }
 
-            // 计算朝向并旋转：优先使用设备方向；否则用“显示位置”的移动向量
+            // 计算朝向并旋转：
+            // 已到达起点后，优先使用路线前进方向；否则使用设备方向或移动向量
             let heading = null;
-            if (typeof lastDeviceHeadingNav === 'number') {
-                heading = lastDeviceHeadingNav;
-            } else if (lastRenderPosNav) {
-                const moveDist = calculateDistanceBetweenPoints(lastRenderPosNav, displayPos);
-                if (moveDist > 0.5) {
-                    heading = calculateBearingBetweenPoints(lastRenderPosNav, displayPos);
+            if (hasReachedStart && onRoute && fullPath && fullPath.length >= 2) {
+                // 已到达起点且在路线上：使用路线前进方向
+                // 找到当前位置在路径上的投影点后的下一个路径点
+                const projection = projectPointOntoPathMeters(displayPos, fullPath);
+                if (projection && typeof projection.index === 'number') {
+                    const nextIdx = Math.min(projection.index + 1, fullPath.length - 1);
+                    const nextPoint = fullPath[nextIdx];
+                    // 计算从当前显示位置到下一路径点的方向作为箭头朝向
+                    heading = calculateBearingBetweenPoints(displayPos, nextPoint);
+                    console.log('使用路线前进方向作为朝向:', heading.toFixed(1), '度');
                 }
             }
 
-            // 使用“显示位置”进行自动校准与朝向应用
+            // 回退方案：未到起点或无法获取路线方向时，使用设备方向或移动向量
+            if (heading === null) {
+                if (typeof lastDeviceHeadingNav === 'number') {
+                    heading = lastDeviceHeadingNav;
+                } else if (lastRenderPosNav) {
+                    const moveDist = calculateDistanceBetweenPoints(lastRenderPosNav, displayPos);
+                    if (moveDist > 0.5) {
+                        heading = calculateBearingBetweenPoints(lastRenderPosNav, displayPos);
+                    }
+                }
+            }
+
+            // 使用"显示位置"进行自动校准与朝向应用
             if (heading !== null) {
                 try {
                     // 为了与吸附后的位置一致，使用显示位置推进校准状态
                     if (lastRenderPosNav) { lastGpsPos = lastRenderPosNav; }
-                    attemptAutoCalibrationNav(displayPos, heading);
+                    // 注意：已到达起点后使用路线方向时，跳过自动校准（避免误判）
+                    if (!hasReachedStart || !onRoute) {
+                        attemptAutoCalibrationNav(displayPos, heading);
+                    }
                     navApplyHeadingToMarker(heading);
                 } catch (e) {
                     console.error('设置标记角度失败:', e);
@@ -3546,7 +3535,8 @@ function startRealNavigationTracking() {
                     preStartGuidePolyline = null;
                 }
                 // 已到达起点，按原有分段逻辑处理
-                updatePathSegments(curr, fullPath, segIndex, projectionPoint);
+                // 使用displayPos（吸附后的位置）而不是curr（原始GPS），保持与位置图标一致
+                updatePathSegments(displayPos, fullPath, segIndex, projectionPoint);
             }
 
             // 视图跟随：跟随显示位置（吸附后的位置）
@@ -3997,7 +3987,8 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
     }
 
     // 处理偏离路径的情况
-    if (!onRoute) {
+    // 只有在已到达起点后，才记录和显示偏离轨迹
+    if (!onRoute && hasReachedStart) {
         // 添加当前位置到偏离路径（使用实际GPS位置，不是投影点）
         if (deviatedPath.length === 0 ||
             calculateDistanceBetweenPoints(currentPos, deviatedPath[deviatedPath.length - 1]) > 2) {
@@ -4026,7 +4017,7 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
             }
         }
 
-        // 偏离时：保留已走灰线，体现完整历史，不再根据“trail/history”模式隐藏
+        // 偏离时：保留已走灰线，体现完整历史，不再根据"trail/history"模式隐藏
     } else {
         // 回到路线上时，清除偏离路径
         if (deviatedRoutePolyline) {
@@ -4449,6 +4440,7 @@ function startRealtimePositionTracking() {
             }
 
             // 计算并更新朝向
+            // 注意：导航前阶段(未开始导航时)仍使用设备方向或移动方向
             let heading = null;
             if (typeof lastDeviceHeadingNav === 'number') {
                 // 优先使用设备方向
