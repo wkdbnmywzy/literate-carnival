@@ -3484,8 +3484,20 @@ function startRealNavigationTracking() {
                     }
                 }
             }
-            isOffRoute = !onRoute;
-            console.log('精度:', accuracy, 'm, 偏离路径状态:', isOffRoute);
+            // 改进的偏离判断逻辑：如果成功吸附到路线上，则不算偏离
+            // 判断是否成功吸附：displayPos 等于 projectionPointForSnap
+            if (projectionPointForSnap &&
+                Array.isArray(projectionPointForSnap) &&
+                projectionPointForSnap.length >= 2 &&
+                displayPos === projectionPointForSnap) {
+                // 已成功吸附到路线上，不算偏离
+                isOffRoute = false;
+                console.log('精度:', accuracy, 'm, 已吸附到路线，不算偏离');
+            } else {
+                // 未吸附或吸附失败，按原逻辑判断
+                isOffRoute = !onRoute;
+                console.log('精度:', accuracy, 'm, 偏离路径状态:', isOffRoute);
+            }
 
             // 路径展示策略：
             // - 未到达起点：保持与“路线规划阶段”一致的整条绿色路线，不画灰线/黄线
