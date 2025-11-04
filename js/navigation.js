@@ -2115,19 +2115,20 @@ function findNextTurnPoint() {
 
     // 从当前位置开始查找
     for (let i = startIdx + 1; i < navigationPath.length - 1; i++) {
-        // 跳过极短线段引起的“锯齿”抖动
         const segLenPrev = calculateDistanceBetweenPoints(navigationPath[i - 1], navigationPath[i]);
         const segLenNext = calculateDistanceBetweenPoints(navigationPath[i], navigationPath[i + 1]);
+        let angle = 0;
         if (segLenPrev < MIN_SEGMENT_LEN_M || segLenNext < MIN_SEGMENT_LEN_M) {
-            continue;
+            const clusterLen = (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.turnClusterMinMeters === 'number')
+                ? MapConfig.navigationConfig.turnClusterMinMeters : 5;
+            angle = getClusterAngleAtIndex(navigationPath, i, clusterLen);
+        } else {
+            // 使用前后各两个点（如有）进行角度平滑，减小微小偏折的影响
+            const p1 = (i - 2 >= 0) ? navigationPath[i - 2] : navigationPath[i - 1];
+            const p2 = navigationPath[i];
+            const p3 = (i + 2 < navigationPath.length) ? navigationPath[i + 2] : navigationPath[i + 1];
+            angle = calculateTurnAngle(p1, p2, p3);
         }
-
-        // 使用前后各两个点（如有）进行角度平滑，减小微小偏折的影响
-        const p1 = (i - 2 >= 0) ? navigationPath[i - 2] : navigationPath[i - 1];
-        const p2 = navigationPath[i];
-        const p3 = (i + 2 < navigationPath.length) ? navigationPath[i + 2] : navigationPath[i + 1];
-
-        const angle = calculateTurnAngle(p1, p2, p3);
 
         // 如果转向角度大于阈值，认为是一个转向点
         if (Math.abs(angle) > TURN_ANGLE_THRESHOLD) {
@@ -2141,12 +2142,21 @@ function findNextTurnPoint() {
         }
     }
 
-    // 后备方案：若严格条件未找到拐点，放宽条件再次扫描（忽略最小线段长度限制）
+    // 后备方案：若严格条件未找到拐点，放宽条件再次扫描（忽略最小线段长度限制，尝试短段聚合）
     for (let i = startIdx + 1; i < navigationPath.length - 1; i++) {
-        const p1 = (i - 2 >= 0) ? navigationPath[i - 2] : navigationPath[i - 1];
-        const p2 = navigationPath[i];
-        const p3 = (i + 2 < navigationPath.length) ? navigationPath[i + 2] : navigationPath[i + 1];
-        const angle = calculateTurnAngle(p1, p2, p3);
+        const segLenPrev = calculateDistanceBetweenPoints(navigationPath[i - 1], navigationPath[i]);
+        const segLenNext = calculateDistanceBetweenPoints(navigationPath[i], navigationPath[i + 1]);
+        let angle = 0;
+        if (segLenPrev < MIN_SEGMENT_LEN_M || segLenNext < MIN_SEGMENT_LEN_M) {
+            const clusterLen = (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.turnClusterMinMeters === 'number')
+                ? MapConfig.navigationConfig.turnClusterMinMeters : 5;
+            angle = getClusterAngleAtIndex(navigationPath, i, clusterLen);
+        } else {
+            const p1 = (i - 2 >= 0) ? navigationPath[i - 2] : navigationPath[i - 1];
+            const p2 = navigationPath[i];
+            const p3 = (i + 2 < navigationPath.length) ? navigationPath[i + 2] : navigationPath[i + 1];
+            angle = calculateTurnAngle(p1, p2, p3);
+        }
         const looserThreshold = Math.max(15, TURN_ANGLE_THRESHOLD - 10); // 最低15°
         if (Math.abs(angle) > looserThreshold) {
             const distAhead = computeDistanceToIndexMeters(currPos, navigationPath, i) || 0;
@@ -2229,6 +2239,35 @@ function getAngleAtIndex(path, idx) {
     return calculateTurnAngle(path[prevIdx], path[mid], path[nextIdx]);
 }
 
+// 当相邻线段很短时，聚合前后若干米再计算夹角，避免短段导致的转向漏检
+function getClusterAngleAtIndex(path, idx, clusterMinLenM) {
+    if (!path || path.length < 3) return 0;
+    const n = path.length;
+    const mid = idx;
+    const CL = Math.max(2, (typeof clusterMinLenM === 'number' ? clusterMinLenM : 5));
+
+    // 向后聚合，找到距离累计达到 CL 米的“前端点”索引 j
+    let j = Math.max(0, mid - 1);
+    let accBack = 0;
+    while (j - 1 >= 0 && accBack < CL) {
+        accBack += calculateDistanceBetweenPoints(path[j - 1], path[j]);
+        j -= 1;
+    }
+
+    // 向前聚合，找到距离累计达到 CL 米的“后端点”索引 k
+    let k = Math.min(n - 1, mid + 1);
+    let accFwd = 0;
+    while (k + 1 < n && accFwd < CL) {
+        accFwd += calculateDistanceBetweenPoints(path[k], path[k + 1]);
+        k += 1;
+    }
+
+    if (j >= mid) j = Math.max(0, mid - 1);
+    if (k <= mid) k = Math.min(n - 1, mid + 1);
+
+    return calculateTurnAngle(path[j], path[mid], path[k]);
+}
+
 // 基于规划路径预计算完整的转向序列(改进版:检测更多弯道)
 // 返回数组: [{ index, angle, type } ...]，index 为路径中的"转向中心点"索引
 function buildTurnSequence(path) {
@@ -2249,16 +2288,21 @@ function buildTurnSequence(path) {
         }
     } catch (e) {}
 
-    // 预扫描，生成候选(改进:使用更短的线段检查以捕获更多弯道)
+    // 预扫描，生成候选(改进:对极短线段使用“短段聚合”角度，避免漏检)
     for (let i = 1; i < path.length - 1; i++) {
         const segLenPrev = calculateDistanceBetweenPoints(path[i - 1], path[i]);
         const segLenNext = calculateDistanceBetweenPoints(path[i], path[i + 1]);
-        if (segLenPrev < MIN_SEGMENT_LEN_M || segLenNext < MIN_SEGMENT_LEN_M) continue;
-
-        const p1 = (i - 2 >= 0) ? path[i - 2] : path[i - 1];
-        const p2 = path[i];
-        const p3 = (i + 2 < path.length) ? path[i + 2] : path[i + 1];
-        const angle = calculateTurnAngle(p1, p2, p3);
+        let angle = 0;
+        if (segLenPrev < MIN_SEGMENT_LEN_M || segLenNext < MIN_SEGMENT_LEN_M) {
+            const clusterLen = (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.turnClusterMinMeters === 'number')
+                ? MapConfig.navigationConfig.turnClusterMinMeters : 5;
+            angle = getClusterAngleAtIndex(path, i, clusterLen);
+        } else {
+            const p1 = (i - 2 >= 0) ? path[i - 2] : path[i - 1];
+            const p2 = path[i];
+            const p3 = (i + 2 < path.length) ? path[i + 2] : path[i + 1];
+            angle = calculateTurnAngle(p1, p2, p3);
+        }
 
         // 只有超过阈值的明显转向才记录(环道等缓弯会被过滤)
         if (Math.abs(angle) > TURN_ANGLE_THRESHOLD) {
