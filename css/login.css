@@ -161,7 +161,7 @@ body {
 
 /* 地图背景区域 */
 .map-background {
-    height: 400px;
+    height: 234px;
     background-image: url('../images/工地数字导航小程序切图/司机/2X/登录/背景.png');
     background-size: cover;
     background-position: center;
@@ -372,12 +372,14 @@ body {
     transition: all 0.3s;
     position: relative;
     font-weight: 500;
+    opacity: 0.6;
 }
 
 .tab-btn.active {
     color: #1a1a1a;
     font-weight: 600;
     font-size: 17px;
+    opacity: 1;
 }
 
 .tab-btn.active::after {
@@ -394,6 +396,7 @@ body {
 /* 表单 */
 .login-form {
     margin-bottom: 24px;
+    padding-top: 200px;
 }
 
 .login-form.hidden {
@@ -580,7 +583,7 @@ body {
     background: transparent;
     border: none;
     color: #2A86FF;
-    font-size: 15px;
+    font-size: 18px;
     font-weight: 500;
     cursor: pointer;
     margin-top: 16px;
