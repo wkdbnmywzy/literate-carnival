@@ -3441,7 +3441,13 @@ function startRealNavigationTracking() {
 
             // 先基于路网计算“投影与吸附”
             let routeCheckResult = checkIfOnRouteWithAccuracy(curr, fullPath, accuracy);
-            let projectionPointForSnap = routeCheckResult && routeCheckResult.projectionPoint;
+            // 提前解构用于后续逻辑，避免未声明变量被引用
+            let onRoute = !!(routeCheckResult && routeCheckResult.onRoute);
+            let projectionPoint = routeCheckResult ? routeCheckResult.projectionPoint : null;
+            let segIndex = (routeCheckResult && routeCheckResult.segmentIndex >= 0)
+                ? routeCheckResult.segmentIndex
+                : findClosestPathIndex(curr, fullPath);
+            let projectionPointForSnap = projectionPoint;
             let displayPos = curr;
             try {
                 // 吸附阈值（米）：可配置 MapConfig.navigationConfig.snapToRouteDistanceMeters；默认12米
@@ -3509,9 +3515,12 @@ function startRealNavigationTracking() {
 
             // 检查是否偏离路径并更新路径显示（使用精度圈判断）
             // 已在上方计算了 routeCheckResult，可直接复用
-            let onRoute = routeCheckResult.onRoute;
-            let projectionPoint = routeCheckResult.projectionPoint;
-            let segIndex = routeCheckResult.segmentIndex >= 0 ? routeCheckResult.segmentIndex : findClosestPathIndex(curr, fullPath);
+            // 上方已声明 onRoute/projectionPoint/segIndex，这里仅保持其最新值
+            onRoute = !!(routeCheckResult && routeCheckResult.onRoute);
+            projectionPoint = routeCheckResult ? routeCheckResult.projectionPoint : projectionPoint;
+            segIndex = (routeCheckResult && routeCheckResult.segmentIndex >= 0)
+                ? routeCheckResult.segmentIndex
+                : segIndex;
 
             // 是否强制要求到达起点附近再开始
             // 需求：未到达起点时，保持与“路线规划”一致的整条绿色路线
