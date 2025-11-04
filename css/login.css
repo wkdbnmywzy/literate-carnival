@@ -242,7 +242,18 @@ body {
     left: 50%;
     transform: translateX(-50%);
     margin: 0;
-    ;
+    padding-bottom: 5px; /* 与 3px 下划线之间留出 2px 间距 */
+}
+
+.project-title::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: #2E89FF;
+    border-radius: 2px;
 }
 
 /* 项目选择内容 */
@@ -380,6 +391,7 @@ body {
     font-weight: 600;
     font-size: 17px;
     opacity: 1;
+    padding-bottom: 5px; /* 与 3px 下划线之间留出 2px 间距 */
 }
 
 .tab-btn.active::after {
@@ -396,7 +408,7 @@ body {
 /* 表单 */
 .login-form {
     margin-bottom: 24px;
-    padding-top: 150px;
+    padding-top: 120px;
 }
 
 /* 仅当切换到“账号密码”时，让账号/密码表单处于居中位置 */
@@ -667,6 +679,18 @@ body {
 /* 固定车辆信息登记时，标题改为 #143662 */
 .vehicle-card.fixed .vehicle-title {
     color: #143662;
+    padding-bottom: 5px; /* 与 3px 下划线之间留出 2px 间距 */
+}
+
+.vehicle-card.fixed .vehicle-title::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3px;
+    background: #2E89FF;
+    border-radius: 2px;
 }
 
 /* 车辆信息表单 */
