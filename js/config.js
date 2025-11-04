@@ -122,6 +122,8 @@ const MapConfig = {
         // 短路径转弯识别的最小线段长度（米）：过大可能忽略短拐点
         // 若短拐点经常不提示，可调到 1~2 米
         minSegmentLengthMeters: 1.5,
+        // 短段聚合角度的最小聚合长度（米）：当相邻线段过短时，聚合前后各若干米再计算夹角，避免漏检
+        turnClusterMinMeters: 5,
         // 转向角度阈值（度），小于该角度视为直行
         turnAngleThresholdDegrees: 28,
         // 通过一个转向后，最少等待多久再显示下一条指示（毫秒），避免连跳
