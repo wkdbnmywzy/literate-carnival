@@ -361,11 +361,17 @@
 }
 
 .timeline-point.start {
-    background-color: #64B5F6;
+    width: 9px;
+    height: 9px;
+    background: #2C88FF; /* 起点小蓝色点 */
+    border-radius: 50%;   /* 保持圆形 */
 }
 
 .timeline-point.end {
-    background-color: #EF5350;
+    width: 9px;
+    height: 9px;
+    background: #F47160; /* 重点项目小红点 */
+    border-radius: 50%;   /* 保持圆形 */
 }
 
 .timeline-info {
