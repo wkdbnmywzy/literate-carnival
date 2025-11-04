@@ -101,7 +101,7 @@ const MapConfig = {
         // 优先使用“预计算的转向序列”来生成提示（基于规划路径，抖动更少）
         usePrecomputedManeuvers: true,
     // 接近起点时，允许"以我为起点"自动对齐到路网的距离（米）
-     startRebaseDistanceMeters: 5,
+     startRebaseDistanceMeters: 12,
         // 判定到达终点的沿路网剩余距离（米）。建议10~15米，过大会提前结束
         endArrivalDistanceMeters: 12,
     // 是否要求到达起点附近再开始沿路网导航
