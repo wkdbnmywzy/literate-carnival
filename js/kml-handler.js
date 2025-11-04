@@ -829,6 +829,8 @@ function displayKMLFeatures(features, fileName) {
         layerMarkers.push(marker);
     });
 
+    // 按需：首页不再绘制路网箭头（仅在开始导航后为导航路线显示白色方向箭头）
+
     // 3. 最后显示点（zIndex: 100，最上层）
     points.forEach((feature, index) => {
         const featureCoordinates = [feature.geometry.coordinates];
