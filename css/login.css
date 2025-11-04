@@ -399,6 +399,27 @@ body {
     padding-top: 150px;
 }
 
+/* 仅当切换到“账号密码”时，让账号/密码表单处于居中位置 */
+#account-login-form {
+    flex: 1;                 /* 占据卡片剩余高度 */
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* 垂直居中账号/密码两行 */
+    align-items: center;     /* 水平居中 */
+    padding-top: 0;          /* 覆盖通用上内边距，避免被顶下去 */
+    margin-bottom: 0;
+}
+
+/* 确保切换为“手机号”时能真正隐藏账号密码表单（ID 选择器权重较高，这里再加一层） */
+#account-login-form.hidden {
+    display: none !important;
+}
+
+/* “确定”按钮与输入区域保持一定距离 */
+#account-login-form .login-btn {
+    margin-top: 28px;        /* 与账号/密码区拉开间距 */
+}
+
 .login-form.hidden {
     display: none;
 }
