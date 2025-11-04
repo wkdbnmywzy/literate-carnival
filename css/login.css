@@ -396,7 +396,7 @@ body {
 /* 表单 */
 .login-form {
     margin-bottom: 24px;
-    padding-top: 200px;
+    padding-top: 150px;
 }
 
 .login-form.hidden {
