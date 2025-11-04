@@ -84,6 +84,7 @@
             padding: 10px 15px;
             display: flex;
             align-items: center;
+            gap: 8px;
         }
 
         .search-input-field {
@@ -93,6 +94,39 @@
             font-size: 15px;
             background: transparent;
             color: #333;
+        }
+
+        /* 清空输入按钮（删除icon）：白底，灰色圆圈与叉 */
+        .clear-input-btn {
+            width: 15px;
+            height: 15px;
+            background: #FFFFFF;      /* 白色底 */
+            border-radius: 50%;       /* 圆形 */
+            position: relative;       /* 供叉号伪元素定位 */
+            border: 1px solid #515151;/* 灰色圆圈描边 */
+            padding: 0;
+            display: none;            /* 默认隐藏 */
+            cursor: pointer;
+        }
+
+        /* 叉号（灰色） */
+        .clear-input-btn::before,
+        .clear-input-btn::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            width: 9px;               /* 叉号线段长度 */
+            height: 1.5px;            /* 叉号线段粗细 */
+            background: #515151;      /* 叉号颜色（灰色） */
+            border-radius: 1px;
+            transform-origin: center;
+        }
+        .clear-input-btn::before { transform: translate(-50%, -50%) rotate(45deg); }
+        .clear-input-btn::after  { transform: translate(-50%, -50%) rotate(-45deg); }
+
+        .clear-input-btn.show {
+            display: inline-block;    /* 有输入时显示 */
         }
 
         .search-input-field::placeholder {
@@ -261,6 +295,7 @@
                        class="search-input-field"
                        id="search-input"
                        autocomplete="off">
+                <button type="button" class="clear-input-btn" id="clear-input-btn" aria-label="清空输入" title="清空"></button>
             </div>
             <button class="search-btn" id="search-btn">搜索</button>
         </div>
@@ -584,6 +619,7 @@
         }
 
         const searchInput = document.getElementById('search-input');
+    const clearBtn = document.getElementById('clear-input-btn');
         const searchBtn = document.getElementById('search-btn');
         const backBtn = document.getElementById('search-back-btn');
         const resultsContainer = document.getElementById('search-results');
@@ -625,10 +661,25 @@
             searchTimer = setTimeout(() => {
                 if (keyword) {
                     renderSearchResults(keyword);
+                    clearBtn?.classList.add('show');
                 } else {
                     renderDefaultContent();
+                    clearBtn?.classList.remove('show');
                 }
             }, 300);
+        });
+
+        // 初始根据是否有值决定是否显示清空按钮（例如浏览器自动填充的情况）
+        if (searchInput.value.trim()) {
+            clearBtn?.classList.add('show');
+        }
+
+        // 清空按钮：清空输入并恢复默认内容
+        clearBtn?.addEventListener('click', function() {
+            searchInput.value = '';
+            searchInput.focus();
+            clearBtn.classList.remove('show');
+            renderDefaultContent();
         });
 
         // 搜索结果点击事件
