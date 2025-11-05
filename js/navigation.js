@@ -37,6 +37,122 @@ let preStartGuidePolyline = null;
 // 导航页动态角度偏移：用于自动修正稳定的180°反向
 let dynamicAngleOffsetNav = 0; // 0 或 180
 let calibrationStateNav = { count0: 0, count180: 0, locked: false };
+// TTS 语音播报支持（会尽量使用讯飞 TTS ，失败或不可用时回退到浏览器 SpeechSynthesis）
+let navTTS = null; // 可能为 XunfeiTTS 实例
+let navTTSQueue = [];
+let navTTSSpeaking = false;
+let navTTSSuppressionUntil = 0; // 时间戳：在此之前忽略重复播报
+
+function initNavTTS() {
+    try {
+        // 优先使用全局配置 MapConfig.xfyun（若存在）
+        if (typeof MapConfig !== 'undefined' && MapConfig && MapConfig.xfyun && MapConfig.xfyun.appId) {
+            try {
+                navTTS = new XunfeiTTS(MapConfig.xfyun.appId, MapConfig.xfyun.apiKey, MapConfig.xfyun.apiSecret);
+                console.log('使用 MapConfig 中的讯飞 TTS 配置初始化 TTS');
+                return;
+            } catch (e) {
+                console.warn('使用 MapConfig 初始化讯飞 TTS 失败，回退：', e);
+            }
+        }
+
+        // 如果 xfyunTTS.js 已经创建了实例并暴露到 window 上，直接复用
+        if (window.xfyunTTSInstance) {
+            navTTS = window.xfyunTTSInstance;
+            console.log('复用全局 xfyunTTSInstance 作为导航语音实例');
+            return;
+        }
+
+        // 否则不强制错误，使用浏览器内置 TTS 作为回退
+        navTTS = null;
+        console.log('未检测到讯飞 TTS 实例，导航将使用浏览器 SpeechSynthesis 回退播报');
+    } catch (e) {
+        console.warn('initNavTTS 出错，回退到浏览器 SpeechSynthesis:', e);
+        navTTS = null;
+    }
+}
+
+function fallbackSpeak(text) {
+    return new Promise((resolve) => {
+        try {
+            if ('speechSynthesis' in window) {
+                const u = new SpeechSynthesisUtterance(text);
+                u.lang = 'zh-CN';
+                u.rate = 1.0;
+                u.onend = () => resolve();
+                u.onerror = () => resolve();
+                window.speechSynthesis.cancel();
+                window.speechSynthesis.speak(u);
+            } else {
+                console.warn('浏览器不支持 speechSynthesis');
+                resolve();
+            }
+        } catch (e) {
+            console.error('fallbackSpeak 错误:', e);
+            resolve();
+        }
+    });
+}
+
+// 导航层面的统一播报接口（去重、节流、失败回退）
+function speakNavigation(text, options) {
+    try {
+        if (!text || typeof text !== 'string') return;
+        // 简单抑制：短时间内重复相同提示时忽略
+        if (Date.now() < navTTSSuppressionUntil) return;
+
+        // 标记短时间内不重复（可配置为2秒）
+        navTTSSuppressionUntil = Date.now() + (options && options.suppressionMs ? options.suppressionMs : 1500);
+
+        // 将消息入队，队列会串行播放，避免并行覆盖
+        try {
+            navTTSQueue.push({ text, options });
+            processNavTTSQueue();
+        } catch (e) {
+            console.warn('入队 speakNavigation 失败，直接回退播放:', e);
+            fallbackSpeak(text);
+        }
+    } catch (e) {
+        console.error('speakNavigation 错误:', e);
+    }
+}
+
+// 处理队列化的 TTS 播放
+function processNavTTSQueue() {
+    if (navTTSSpeaking) return; // 正在播放
+    if (!navTTSQueue || navTTSQueue.length === 0) return;
+
+    const item = navTTSQueue.shift();
+    if (!item || !item.text) return processNavTTSQueue();
+
+    navTTSSpeaking = true;
+    const text = item.text;
+    const voice = item.options && item.options.voice;
+
+    // 优先使用讯飞的 speak 接口（若存在），否则回退到 synthesize 或浏览器 TTS
+    const tryXfyunSpeak = () => {
+        if (navTTS && typeof navTTS.speak === 'function') {
+            return navTTS.speak(text, voice);
+        }
+        if (navTTS && typeof navTTS.synthesize === 'function') {
+            // 兼容旧接口
+            return navTTS.synthesize(text, voice);
+        }
+        return Promise.reject(new Error('no-xfyun'));
+    };
+
+    tryXfyunSpeak()
+        .catch(err => {
+            // 任何错误都回退到浏览器TTS
+            console.warn('讯飞 TTS 播放失败，回退到浏览器 TTS：', err);
+            return fallbackSpeak(text);
+        })
+        .finally(() => {
+            navTTSSpeaking = false;
+            // 延迟下一条处理一点时间，避免极短间隔连续播放导致的冲突
+            setTimeout(processNavTTSQueue, 120);
+        });
+}
 let isOffRoute = false;            // 是否偏离路径
 let offRouteThreshold = 15;        // 偏离路径阈值（米），考虑GPS精度设为15米
 let passedRoutePolyline = null;    // 已走过的规划路径（灰色）
@@ -1531,6 +1647,8 @@ function cleanupMap() {
 // 页面加载完成后初始化
 window.addEventListener('load', function() {
     console.log('导航页面加载完成');
+    // 初始化 TTS（优先尝试讯飞，失败回退浏览器内置）
+    try { initNavTTS(); } catch (e) { console.warn('initNavTTS 调用失败:', e); }
     initNavigationMap();
     setupNavigationEvents();
 
@@ -1666,6 +1784,7 @@ function startNavigationUI() {
     enableRouteArrows();
 
     console.log('导航已开始');
+    try { speakNavigation('导航已开始，请注意行车安全'); } catch (e) {}
 }
 
 // 停止导航UI
@@ -1693,6 +1812,7 @@ function stopNavigationUI() {
     disableRouteArrows();
 
     console.log('导航已停止');
+    try { speakNavigation('导航已停止'); } catch (e) {}
 }
 
 // ====== 目标点管理逻辑 ======
@@ -2037,7 +2157,7 @@ function updateNavigationTip() {
     }
 
     
-    // 调试日志
+    // 调试日志 + 语音播报
         try {
             console.log('导航提示更新:', {
                 directionType,
@@ -2045,6 +2165,35 @@ function updateNavigationTip() {
                 nextTurnIndex,
                 currentNavigationIndex
             });
+            // 生成播放文案（简单规则）：
+            try {
+                const d = Math.round(distanceToNext || 0);
+                let msg = '';
+                if (directionType === 'left' || directionType === 'right' || directionType === 'uturn' || directionType === 'backward') {
+                    // 近距离提示使用“现在...”，否则使用“前方X米处...”
+                    if (d <= 8) {
+                        if (directionType === 'left') msg = '请现在左转';
+                        else if (directionType === 'right') msg = '请现在右转';
+                        else if (directionType === 'uturn' || directionType === 'backward') msg = '请在就地掉头';
+                    } else {
+                        if (directionType === 'left') msg = `前方${d}米处左转`;
+                        else if (directionType === 'right') msg = `前方${d}米处右转`;
+                        else if (directionType === 'uturn' || directionType === 'backward') msg = `前方${d}米处掉头`;
+                    }
+                } else if (directionType === 'forward' || directionType === 'straight') {
+                    if (d <= 20) msg = '继续直行';
+                    else msg = `继续直行，约${d}米`;
+                } else if (directionType === 'offroute') {
+                    msg = '您已偏离路线，请尽快回到规划路线';
+                }
+
+                if (msg) {
+                    // 限制短时间内重复播报
+                    speakNavigation(msg, { suppressionMs: 1800 });
+                }
+            } catch (e) {
+                console.warn('生成语音提示失败:', e);
+            }
         } catch (e) {}
         updateDirectionIcon(directionType, distanceToNext);
     
@@ -4344,6 +4493,7 @@ function finishNavigation() {
     }
 
     showNavigationCompleteModal(totalRouteDistance || 0, totalMinutes);
+    try { speakNavigation('到达目的地，导航结束。'); } catch (e) {}
 }
 
 function tryStartDeviceOrientationNav() {
