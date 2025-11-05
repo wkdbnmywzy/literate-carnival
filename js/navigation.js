@@ -49,25 +49,25 @@ function initNavTTS() {
         if (typeof MapConfig !== 'undefined' && MapConfig && MapConfig.xfyun && MapConfig.xfyun.appId) {
             try {
                 navTTS = new XunfeiTTS(MapConfig.xfyun.appId, MapConfig.xfyun.apiKey, MapConfig.xfyun.apiSecret);
-                console.log('使用 MapConfig 中的讯飞 TTS 配置初始化 TTS');
+                console.log('[TTS调试] 使用 MapConfig 中的讯飞 TTS 配置初始化 TTS - 使用科大讯飞API');
                 return;
             } catch (e) {
-                console.warn('使用 MapConfig 初始化讯飞 TTS 失败，回退：', e);
+                console.warn('[TTS调试] 使用 MapConfig 初始化讯飞 TTS 失败，回退：', e);
             }
         }
 
         // 如果 xfyunTTS.js 已经创建了实例并暴露到 window 上，直接复用
         if (window.xfyunTTSInstance) {
             navTTS = window.xfyunTTSInstance;
-            console.log('复用全局 xfyunTTSInstance 作为导航语音实例');
+            console.log('[TTS调试] 复用全局 xfyunTTSInstance 作为导航语音实例 - 使用科大讯飞API');
             return;
         }
 
         // 否则不强制错误，使用浏览器内置 TTS 作为回退
         navTTS = null;
-        console.log('未检测到讯飞 TTS 实例，导航将使用浏览器 SpeechSynthesis 回退播报');
+        console.log('[TTS调试] 未检测到讯飞 TTS 实例，导航将使用浏览器 SpeechSynthesis 回退播报 - 使用浏览器自带API');
     } catch (e) {
-        console.warn('initNavTTS 出错，回退到浏览器 SpeechSynthesis:', e);
+        console.warn('[TTS调试] initNavTTS 出错，回退到浏览器 SpeechSynthesis - 使用浏览器自带API:', e);
         navTTS = null;
     }
 }
