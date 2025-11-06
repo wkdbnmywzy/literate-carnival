@@ -33,7 +33,7 @@ body {
     left: 0;
     right: 0;
     bottom: 0;
-    background: linear-gradient(to bottom, #E3F2FD 0%, #BBDEFB 50%, #90CAF9 100%);
+    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -270,41 +270,12 @@ body {
     margin-bottom: 30px;
     justify-content: center;
     align-items: center;
+    position: relative; /* 为统一遮罩层定位 */
 }
 
-.picker-wrapper {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    max-width: 45%;
-}
-
-.picker-label {
-    display: none;
-}
-
-/* 轮盘选择器 */
-.wheel-picker {
-    position: relative;
-    height: 180px;
-    background: white;
-    border-radius: 8px;
-    overflow: hidden;
-}
-
-/* 项目选择项颜色覆盖为 #143662 */
-.project-selection .picker-item {
-    color: #143662;
-}
-
-.project-selection .picker-item.selected {
-    color: #143662;
-    font-weight: 600;
-    font-size: 18px;
-}
-
-/* 遮罩层 */
-.picker-mask {
+/* 新增：统一的遮罩层 */
+.picker-container::before {
+    content: '';
     position: absolute;
     top: 0;
     left: 0;
@@ -322,19 +293,78 @@ body {
     z-index: 2;
 }
 
-/* 高亮区域 */
-.picker-highlight {
+/* 新增：统一的高亮区域，解决中间断口问题 */
+.picker-container::after {
+    content: '';
     position: absolute;
     top: 50%;
     left: 0;
     right: 0;
     height: 36px;
     transform: translateY(-50%);
-    border-top: 1px solid #E0E0E0;
-    border-bottom: 1px solid #E0E0E0;
+    border-top: 1px solid #2E89FF;
+    border-bottom: 1px solid #2E89FF;
     background: rgba(91, 168, 227, 0.05);
     pointer-events: none;
-    z-index: 1;
+    z-index: 1; /* 确保在遮罩下方，在文字上方 */
+}
+
+
+
+.picker-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    max-width: 45%;
+}
+
+.picker-label {
+    display: none;
+}
+
+/* 轮盘选择器 */
+.wheel-picker {
+    position: relative;
+    height: 180px;
+    background: transparent; /* 改为透明，以显示父容器的统一遮罩 */
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+/* 项目选择项颜色覆盖为 #143662 */
+.project-selection .picker-item {
+    color: #2E89FF; /* 未选中项改为蓝色 */
+}
+
+.project-selection .picker-item.selected {
+    color: #143662; /* 选中项改回深色 */
+    font-weight: 600;
+    font-size: 18px;
+}
+
+/* 遮罩层 (已由 .picker-container::before 替代) */
+.picker-mask {
+    display: none; /* 隐藏独立的遮罩层 */
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(
+        to bottom,
+        rgba(255, 255, 255, 0.95) 0%,
+        rgba(255, 255, 255, 0.6) 20%,
+        rgba(255, 255, 255, 0) 50%,
+        rgba(255, 255, 255, 0.6) 80%,
+        rgba(255, 255, 255, 0.95) 100%
+    );
+    pointer-events: none;
+    z-index: 2;
+}
+
+/* 高亮区域 (由 .picker-container::after 统一处理) */
+.picker-highlight {
+    display: none;
 }
 
 /* 选择器列 */
@@ -351,11 +381,15 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    /* 使用 clamp 实现动态字体大小，避免长文本换行 */
+    font-size: clamp(12px, 4vw, 14px);
     color: #999;
     transition: all 0.3s;
     cursor: pointer;
-    padding: 0 12px;
+    padding: 0 4px; /* 减小内边距以容纳更长的文本 */
+    white-space: nowrap; /* 强制不换行 */
+    overflow: hidden; /* 隐藏溢出部分 */
+    text-overflow: ellipsis; /* 对溢出文本显示省略号 */
 }
 
 .picker-item.selected {

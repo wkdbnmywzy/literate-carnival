@@ -37,7 +37,7 @@ body {
     position: relative;
     max-width: 480px;
     margin: 0 auto;
-    background-color: white;
+    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
     overflow: hidden;
 }
 
@@ -98,17 +98,19 @@ body {
     left: 20px;
     right: 20px;
     z-index: 80; /* 调整到底部卡片下一层 */
-    background: rgba(255, 255, 255, 0.5);
-    border-radius: 12px;
-    padding: 12px 15px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    backdrop-filter: blur(10px);
+    /* 容器本身透明，只负责定位 */
 }
 
 .search-box {
     display: flex;
     align-items: center;
     gap: 10px;
+    /* 改为半透明背景 */
+    background: rgba(255, 255, 255, 0.8);
+    border-radius: 12px;
+    padding: 12px 15px;
+    /* 更小、更柔和的阴影 */
+    box-shadow: 0 2px 8px rgba(44, 136, 255, 0.5);
 }
 
 .search-icon {
@@ -294,10 +296,28 @@ body {
     left: 0;
     right: 0;
     z-index: 110;
-    background: #FFFFFF;
+    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%); /* 改为从白到蓝的渐变背景 */
     border-radius: 20px 20px 0 0;
     padding: 20px 70px 20px 20px;
     box-shadow: none;
+}
+
+/* 导航页面底部卡片：与底部卡片保持一致的渐变与圆角样式 */
+.navigation-card {
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    right: 0;
+    z-index: 110;
+    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
+    border-radius: 20px 20px 0 0;
+    padding: 20px 70px 20px 20px;
+    box-shadow: none;
+}
+
+/* 导航页起点输入占位符蓝色，与其它页面保持一致 */
+#nav-start-location::placeholder {
+    color: #2A86FF;
 }
 
 /* 路线规划界面 */
@@ -482,7 +502,7 @@ body {
 
 .end-icon {
     color: #ff4444;
-    font-size: 8px;
+    font-size: 14px;
 }
 
 .location-item input {
@@ -497,6 +517,11 @@ body {
 
 .location-item input::placeholder {
     color: #999;
+}
+
+/* “我的位置”占位符蓝色 */
+#start-location::placeholder {
+    color: #2A86FF;
 }
 
 .divider-line {
@@ -547,9 +572,10 @@ body {
     width: 38px;
     height: 38px;
     flex-shrink: 0;
-    background: #f8f9fa;
-    border: 1px solid #e6e9ef;
-    border-radius: 50%;
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -562,23 +588,18 @@ body {
     z-index: 2;
 }
 
-.swap-btn i {
-    font-size: 16px;
-    color: #666;
-    transform: rotate(90deg);
-}
-
 .swap-btn:hover {
-    background: #e9ecef;
-    border-color: #1E6FFF;
-}
-
-.swap-btn:hover i {
-    color: #1E6FFF;
+    transform: translateY(-50%) scale(1.1);
 }
 
 .swap-btn:active {
-    transform: scale(0.95);
+    transform: translateY(-50%) scale(0.95);
+}
+
+.swap-btn img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 
 .swap-btn img {
@@ -797,6 +818,11 @@ body {
     color: #999;
 }
 
+/* 点位选择页面“我的位置”占位符蓝色 */
+#picker-start-location::placeholder {
+    color: #2A86FF;
+}
+
 .picker-divider-line {
     display: flex;
     align-items: center;
@@ -815,9 +841,10 @@ body {
     width: 38px;
     height: 38px;
     flex-shrink: 0;
-    background: #f8f9fa;
-    border: 1px solid #e6e9ef;
-    border-radius: 50%;
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -830,23 +857,18 @@ body {
     z-index: 2;
 }
 
-.picker-swap-btn i {
-    font-size: 16px;
-    color: #666;
-    transform: rotate(90deg);
-}
-
 .picker-swap-btn:hover {
-    background: #e9ecef;
-    border-color: #1E6FFF;
-}
-
-.picker-swap-btn:hover i {
-    color: #1E6FFF;
+    transform: translateY(-50%) scale(1.1);
 }
 
 .picker-swap-btn:active {
-    transform: scale(0.95);
+    transform: translateY(-50%) scale(0.95);
+}
+
+.picker-swap-btn img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
 }
 
 .picker-add-waypoint {
