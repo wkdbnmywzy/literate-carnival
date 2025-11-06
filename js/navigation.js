@@ -1218,7 +1218,7 @@ function addRouteMarkers(startLngLat, endLngLat) {
     console.log('终点标记已添加:', routeData?.end?.name);
 }
 
-// 添加途经点标记
+// 添加途经点标记（使用HTML自定义标记显示编号）
 function addWaypointMarkers(waypoints) {
     // 清理旧的途经点标记
     if (waypointMarkers && waypointMarkers.length) {
@@ -1226,25 +1226,90 @@ function addWaypointMarkers(waypoints) {
         waypointMarkers = [];
     }
 
-    const icon = new AMap.Icon({
-        size: new AMap.Size(26, 34),
-        image: 'images/工地数字导航小程序切图/司机/2X/地图icon/途径点.png',
-        imageSize: new AMap.Size(26, 34)
-    });
+    const waypointCount = waypoints.length;
 
-    waypoints.forEach(wp => {
+    waypoints.forEach((wp, index) => {
         const pos = resolvePointPosition(wp);
         if (!pos) return;
-        const marker = new AMap.Marker({
-            position: pos,
-            icon,
-            offset: new AMap.Pixel(-13, -34),
-            zIndex: 99,
-            map: navigationMap,
-            title: wp?.name || '途经点'
-        });
+        
+        let marker;
+        
+        // 如果只有1个途径点，使用原图标；如果有多个，使用带编号的自定义标记
+        if (waypointCount === 1) {
+            // 单个途径点：使用原图标
+            const icon = new AMap.Icon({
+                size: new AMap.Size(26, 34),
+                image: 'images/工地数字导航小程序切图/司机/2X/地图icon/途径点.png',
+                imageSize: new AMap.Size(26, 34)
+            });
+            
+            marker = new AMap.Marker({
+                position: pos,
+                icon: icon,
+                offset: new AMap.Pixel(-13, -34),
+                zIndex: 99,
+                map: navigationMap,
+                title: wp?.name || '途经点'
+            });
+        } else {
+            // 多个途径点：使用自定义HTML显示编号
+            const markerContent = createWaypointMarkerHTML(index + 1);
+            
+            marker = new AMap.Marker({
+                position: pos,
+                content: markerContent,
+                offset: new AMap.Pixel(-13, -34),
+                zIndex: 99,
+                map: navigationMap,
+                title: `途${index + 1}: ${wp?.name || '途经点'}`
+            });
+        }
+        
         waypointMarkers.push(marker);
     });
+}
+
+// 创建途径点标记的HTML内容（带编号，使用无字图标）
+function createWaypointMarkerHTML(number) {
+    const div = document.createElement('div');
+    div.style.cssText = `
+        position: relative;
+        width: 26px;
+        height: 34px;
+    `;
+    
+    // 途径点图标（无字版本）
+    const img = document.createElement('img');
+    img.src = 'images/工地数字导航小程序切图/司机/2X/地图icon/途径点1.png';
+    img.style.cssText = `
+        width: 26px;
+        height: 34px;
+        display: block;
+    `;
+    
+    // 白色文字标签："途1"、"途2"等（显示在橙色图标区域内）
+    const numberLabel = document.createElement('div');
+    numberLabel.textContent = `途${number}`;
+    numberLabel.style.cssText = `
+        position: absolute;
+        top: 7px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #FFFFFF;
+        font-size: 10px;
+        font-weight: bold;
+        font-family: 'Microsoft YaHei', 'SimHei', Arial, sans-serif;
+        pointer-events: none;
+        line-height: 1;
+        z-index: 2;
+        white-space: nowrap;
+        text-shadow: 0 0 2px rgba(0,0,0,0.3);
+    `;
+    
+    div.appendChild(img);
+    div.appendChild(numberLabel);
+    
+    return div;
 }
 
 // 解析点对象到 [lng, lat]
