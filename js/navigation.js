@@ -101,8 +101,8 @@ function speakNavigation(text, options) {
         // 简单抑制：短时间内重复相同提示时忽略
         if (Date.now() < navTTSSuppressionUntil) return;
 
-        // 标记短时间内不重复（可配置为2秒）
-        navTTSSuppressionUntil = Date.now() + (options && options.suppressionMs ? options.suppressionMs : 1500);
+        // 标记短时间内不重复（默认为3秒，避免重复播报）
+        navTTSSuppressionUntil = Date.now() + (options && options.suppressionMs ? options.suppressionMs : 3000);
 
         // 将消息入队，队列会串行播放，避免并行覆盖
         try {
@@ -155,6 +155,7 @@ function processNavTTSQueue() {
 }
 let isOffRoute = false;            // 是否偏离路径
 let offRouteThreshold = 15;        // 偏离路径阈值（米），考虑GPS精度设为15米
+let lastDirectionType = null;      // 上一次的导航方向类型，用于增加稳定性
 let passedRoutePolyline = null;    // 已走过的规划路径（灰色）
 let deviatedRoutePolyline = null;  // 偏离的实际路径（黄色）
 let deviatedPath = [];             // 偏离路径的点���合
@@ -2165,6 +2166,24 @@ function updateNavigationTip() {
                 nextTurnIndex,
                 currentNavigationIndex
             });
+
+            // 添加转向稳定性检查，避免频繁切换
+            let stableDirectionType = directionType;
+            try {
+                // 如果有上一次的方向类型，检查是否稳定
+                if (lastDirectionType) {
+                    // 如果距离大于30米，才允许改变方向类型，避免在小范围内频繁切换
+                    if (distanceToNext > 30 || lastDirectionType === directionType) {
+                        stableDirectionType = directionType;
+                    } else {
+                        // 保持上一次的方向类型，增加稳定性
+                        stableDirectionType = lastDirectionType;
+                    }
+                }
+                // 保存当前方向类型
+                lastDirectionType = stableDirectionType;
+            } catch (e) { /* 忽略错误 */ }
+
             // 生成播放文案（简单规则）：
             try {
                 const d = Math.round(distanceToNext || 0);
@@ -2188,8 +2207,8 @@ function updateNavigationTip() {
                 }
 
                 if (msg) {
-                    // 限制短时间内重复播报
-                    speakNavigation(msg, { suppressionMs: 1800 });
+                    // 限制短时间内重复播报，增加抑制时间到3秒，避免重复播报
+                    speakNavigation(msg, { suppressionMs: 3000 });
                 }
             } catch (e) {
                 console.warn('生成语音提示失败:', e);
