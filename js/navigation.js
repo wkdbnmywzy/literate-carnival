@@ -3533,18 +3533,12 @@ function startSimulatedNavigation() {
         userMarker = null;
     }
 
-    // 使用与首页相同的带方向箭头图标
-    const iconCfg = MapConfig.markerStyles.headingLocation || {};
-    let w = (iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-    let h = (iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
-
-    // 保持原图比例，不强制转换为正方形
-
-    let iconImage = iconCfg.icon;
-    // 如果开启箭头模式或 PNG 未配置，则改用 SVG 箭头，以确保旋转效果明显
-    if (iconCfg.useSvgArrow === true || !iconImage) {
-        iconImage = createHeadingArrowDataUrl('#007bff');
-    }
+    // 开始导航后，将“我的位置”图标改为 管理/2X/运输管理/临时车.png，并将尺寸设置为绿色路网的线宽
+    // 计算线宽：优先使用全局记录的 routeStrokeWeight；若无则退回 16
+    let w = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16;
+    let h = w; // 统一使用线宽的正方形尺寸，满足“设置成绿色路网的宽度”的要求
+    // 指定临时车图标路径
+    let iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
 
     const myIcon = new AMap.Icon({
         size: new AMap.Size(w, h),
@@ -4079,18 +4073,10 @@ function startRealNavigationTracking() {
 
             // 初始化标记与灰色路径
             if (!userMarker) {
-                // 使用与首页相同的配置
-                const iconCfg = MapConfig.markerStyles.headingLocation;
-                let w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-                let h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
-
-                // 保持原图比例，不强制转换为正方形
-
-                // 使用配置的图标或SVG箭头
-                let iconImage = iconCfg && iconCfg.icon ? iconCfg.icon : null;
-                if (!iconImage || iconCfg.useSvgArrow === true) {
-                    iconImage = createHeadingArrowDataUrl('#007bff');
-                }
+                // 开始导航后，将“我的位置”图标改为 管理/2X/运输管理/临时车.png，并将尺寸设置为绿色路网的线宽
+                let w = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16;
+                let h = w; // 满足“设置成绿色路网的宽度”，高度取同值，其他不改
+                const iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
 
                 console.log('导航中创建我的位置标记, 图标路径:', iconImage, '尺寸:', w, 'x', h);
 
@@ -4150,22 +4136,19 @@ function startRealNavigationTracking() {
             } catch (e) { /* 吸附失败则退回原始位置 */ }
 
             // 计算朝向并旋转：
-            // 已到达起点后，优先使用路线前进方向；否则使用设备方向或移动向量
+            // 需求：到达起点后，车辆图标指向与路网方向一致（路径切线方向），忽略设备自身朝向
             let heading = null;
-            if (hasReachedStart && onRoute && fullPath && fullPath.length >= 2) {
-                // 已到达起点且在路线上：使用路线前进方向
-                // 找到当前位置在路径上的投影点后的下一个路径点
+            if (hasReachedStart && fullPath && fullPath.length >= 2) {
                 const projection = projectPointOntoPathMeters(displayPos, fullPath);
                 if (projection && typeof projection.index === 'number') {
                     const nextIdx = Math.min(projection.index + 1, fullPath.length - 1);
                     const nextPoint = fullPath[nextIdx];
-                    // 计算从当前显示位置到下一路径点的方向作为箭头朝向
                     heading = calculateBearingBetweenPoints(displayPos, nextPoint);
-                    console.log('使用路线前进方向作为朝向:', heading.toFixed(1), '度');
+                    console.log('使用路线切线方向作为朝向(与路网平行):', heading.toFixed(1), '度');
                 }
             }
 
-            // 回退方案：未到起点或无法获取路线方向时，使用设备方向或移动向量
+            // 回退：未到起点或无法获取路径切线时，使用设备方向或移动向量
             if (heading === null) {
                 if (typeof lastDeviceHeadingNav === 'number') {
                     heading = lastDeviceHeadingNav;
@@ -4182,8 +4165,8 @@ function startRealNavigationTracking() {
                 try {
                     // 为了与吸附后的位置一致，使用显示位置推进校准状态
                     if (lastRenderPosNav) { lastGpsPos = lastRenderPosNav; }
-                    // 注意：已到达起点后使用路线方向时，跳过自动校准（避免误判）
-                    if (!hasReachedStart || !onRoute) {
+                    // 已到达起点后使用路线切线方向时跳过自动校准（避免被判定为反向移动）
+                    if (!hasReachedStart) {
                         attemptAutoCalibrationNav(displayPos, heading);
                     }
                     navApplyHeadingToMarker(heading);
