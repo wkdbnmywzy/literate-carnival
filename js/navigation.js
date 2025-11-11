@@ -30,6 +30,14 @@ let lastGpsPos = null;            // 上一次GPS位置（用于计算朝向）
 let lastGpsUpdateTime = 0;        // 【改进】上一次GPS更新时间戳（毫秒）
 let gpsTimeoutCheckTimer = null;  // 【改进】GPS超时检查定时器
 let geoErrorNotified = false;     // 避免重复弹错误
+// 【新增】GPS过滤相关
+let gpsFilterEnabled = true;      // 是否启用GPS过滤（可通过配置关闭）
+let gpsMaxJumpDistance = 50;      // GPS最大跳跃距离（米），超过此距离视为异常数据
+let gpsRecentPositions = [];      // 最近N个有效GPS位置（用于平滑和异常检测）
+let gpsMaxHistorySize = 5;        // 保留最近5个有效位置
+// 【新增】语音播报优化
+let lastNavPromptMessage = '';    // 上一次播报的内容（用于去重）
+let lastNavPromptTime = 0;        // 上一次播报的时间戳
 let lastRenderPosNav = null;      // 上一次用于渲染/吸附后的显示位置（用于计算视觉朝向）
 let lastProjectionNav = null;     // 上一次的投影结果（用于带方向性约束的平行线过滤）
 // 设备方向（用于箭头随朝向变化）
@@ -1750,6 +1758,29 @@ function cleanupMap() {
 // 页面加载完成后初始化
 window.addEventListener('load', function() {
     console.log('导航页面加载完成');
+
+    // 【新增】初始化GPS过滤配置
+    try {
+        // 从MapConfig读取GPS过滤配置
+        if (typeof MapConfig !== 'undefined' && MapConfig && MapConfig.navigationConfig) {
+            // GPS过滤开关（默认启用）
+            if (typeof MapConfig.navigationConfig.gpsFilterEnabled === 'boolean') {
+                gpsFilterEnabled = MapConfig.navigationConfig.gpsFilterEnabled;
+            }
+            // GPS最大跳跃距离（默认50米）
+            if (typeof MapConfig.navigationConfig.gpsMaxJumpDistanceMeters === 'number') {
+                gpsMaxJumpDistance = MapConfig.navigationConfig.gpsMaxJumpDistanceMeters;
+            }
+            // GPS历史记录大小（默认5）
+            if (typeof MapConfig.navigationConfig.gpsMaxHistorySize === 'number') {
+                gpsMaxHistorySize = MapConfig.navigationConfig.gpsMaxHistorySize;
+            }
+        }
+        console.log('【GPS过滤配置】启用:', gpsFilterEnabled, ', 最大跳跃距离:', gpsMaxJumpDistance, 'm, 历史记录大小:', gpsMaxHistorySize);
+    } catch (e) {
+        console.warn('读取GPS过滤配置失败，使用默认值:', e);
+    }
+
     // 初始化 TTS（优先尝试讯飞，失败回退浏览器内置）
     try { initNavTTS(); } catch (e) { console.warn('initNavTTS 调用失败:', e); }
     initNavigationMap();
@@ -2299,31 +2330,41 @@ function updateNavigationTip() {
                 lastDirectionType = stableDirectionType;
             } catch (e) { /* 忽略错误 */ }
 
-            // 生成播放文案（简单规则）：
+            // 生成播放文案（简化版，不播报具体数字）：
             try {
                 const d = Math.round(distanceToNext || 0);
                 let msg = '';
-                if (directionType === 'left' || directionType === 'right' || directionType === 'uturn' || directionType === 'backward') {
-                    // 近距离提示使用“现在...”，否则使用“前方X米处...”
-                    if (d <= 8) {
-                        if (directionType === 'left') msg = '请现在左转';
-                        else if (directionType === 'right') msg = '请现在右转';
-                        else if (directionType === 'uturn' || directionType === 'backward') msg = '请在就地掉头';
-                    } else {
-                        if (directionType === 'left') msg = `前方${d}米处左转`;
-                        else if (directionType === 'right') msg = `前方${d}米处右转`;
-                        else if (directionType === 'uturn' || directionType === 'backward') msg = `前方${d}米处掉头`;
-                    }
+
+                // 根据方向类型生成简化的播报内容
+                if (directionType === 'left') {
+                    // 根据距离分档播报，避免频繁变化
+                    if (d <= 10) msg = '请左转';
+                    else if (d <= 50) msg = '前方左转';
+                    else msg = '继续前进，准备左转';
+                } else if (directionType === 'right') {
+                    if (d <= 10) msg = '请右转';
+                    else if (d <= 50) msg = '前方右转';
+                    else msg = '继续前进，准备右转';
+                } else if (directionType === 'uturn' || directionType === 'backward') {
+                    if (d <= 10) msg = '请掉头';
+                    else if (d <= 50) msg = '前方掉头';
+                    else msg = '继续前进，准备掉头';
                 } else if (directionType === 'forward' || directionType === 'straight') {
-                    if (d <= 20) msg = '继续直行';
-                    else msg = `继续直行，约${d}米`;
+                    msg = '继续直行';
                 } else if (directionType === 'offroute') {
-                    msg = '您已偏离路线，请尽快回到规划路线';
+                    msg = '您已偏离路线';
                 }
 
-                if (msg) {
-                    // 限制短时间内重复播报，增加抑制时间到3秒，避免重复播报
-                    speakNavigation(msg, { suppressionMs: 3000 });
+                // 【优化】只在播报内容变化时才播报，避免频繁重复
+                if (msg && msg !== lastNavPromptMessage) {
+                    const now = Date.now();
+                    // 额外保护：相同内容至少间隔5秒
+                    if (msg !== lastNavPromptMessage || (now - lastNavPromptTime) > 5000) {
+                        console.log('【语音播报】:', msg, '(上次:', lastNavPromptMessage, ')');
+                        speakNavigation(msg, { suppressionMs: 5000 });
+                        lastNavPromptMessage = msg;
+                        lastNavPromptTime = now;
+                    }
                 }
             } catch (e) {
                 console.warn('生成语音提示失败:', e);
@@ -3300,30 +3341,28 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
     }
 
 
-    // 更新提示文本
+    // 更新提示文本 - 统一格式为一行显示
     if (effectiveDirection === 'straight' || effectiveDirection === 'forward') {
-        // 直行/前进时显示:"沿当前道路行驶 XXX 米"
+        // 直行/前进时显示:"沿当前道路行驶 XXX 米"（一行）
         if (distanceAheadElem) {
-            distanceAheadElem.textContent = '沿当前道路行驶 ' + distance;
+            distanceAheadElem.textContent = '沿当前道路行驶 ' + distance + ' 米';
         }
         if (actionText) {
-            actionText.textContent = '米';
+            actionText.textContent = ''; // 清空
         }
-        // 隐藏"米后"文本
         if (distanceUnitElem) {
-            distanceUnitElem.style.display = 'none';
+            distanceUnitElem.style.display = 'none'; // 隐藏
         }
     } else {
-        // 其他转向显示:"XXX 米后 左转/右转/掉头/后退"
+        // 其他转向显示:"XXX 米后 左转/右转/掉头/后退"（一行）
         if (distanceAheadElem) {
-            distanceAheadElem.textContent = distance;
+            distanceAheadElem.textContent = distance + ' 米后 ' + actionName;
         }
         if (actionText) {
-            actionText.textContent = actionName;
+            actionText.textContent = ''; // 清空
         }
-        // 显示"米后"文本
         if (distanceUnitElem) {
-            distanceUnitElem.style.display = 'inline';
+            distanceUnitElem.style.display = 'none'; // 隐藏
         }
     }
 }
@@ -3786,6 +3825,106 @@ function pointToSegmentDistance(point, segStart, segEnd) {
     return distDeg * 111000;
 }
 
+// ====== GPS异常数据过滤器 ======
+/**
+ * 检测GPS数据是否异常（如飘移）
+ * @param {Array} newPos - 新的GPS位置 [lng, lat]
+ * @param {Number} accuracy - GPS精度（米）
+ * @returns {Object} { isValid: boolean, reason: string }
+ */
+function isGPSDataValid(newPos, accuracy) {
+    // 如果未启用GPS过滤，直接返回有效
+    if (!gpsFilterEnabled) {
+        console.log('【GPS过滤】已禁用，接受所有GPS数据');
+        return { isValid: true, reason: 'filter_disabled' };
+    }
+
+    // 从配置读取过滤参数（带容错）
+    let maxJumpDist = gpsMaxJumpDistance || 50; // 默认50米
+    try {
+        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.gpsMaxJumpDistanceMeters === 'number') {
+            maxJumpDist = MapConfig.navigationConfig.gpsMaxJumpDistanceMeters;
+        }
+    } catch (e) {
+        console.warn('【GPS过滤】读取配置失败，使用默认值:', maxJumpDist, 'm');
+    }
+
+    // 第一个GPS点，直接接受
+    if (!gpsRecentPositions || gpsRecentPositions.length === 0) {
+        console.log('【GPS过滤】首个GPS点，直接接受');
+        return { isValid: true, reason: 'first_position' };
+    }
+
+    // 检测1: GPS精度检查（精度太差的数据直接拒绝）
+    const maxAccuracy = 100; // 最大允许精度误差100米
+    if (accuracy && accuracy > maxAccuracy) {
+        console.warn('【GPS过滤】❌ 精度过低:', accuracy, 'm > ', maxAccuracy, 'm');
+        return { isValid: false, reason: 'poor_accuracy' };
+    }
+
+    // 检测2: 跳跃距离检查（与最近一个有效位置对比）
+    const lastValid = gpsRecentPositions[gpsRecentPositions.length - 1];
+    const jumpDist = calculateDistanceBetweenPoints(lastValid, newPos);
+
+    if (jumpDist > maxJumpDist) {
+        console.warn('【GPS过滤】❌ 跳跃距离过大:', jumpDist.toFixed(2), 'm >', maxJumpDist, 'm');
+        console.warn('  上次位置:', lastValid);
+        console.warn('  新位置:', newPos);
+        return { isValid: false, reason: 'jump_too_large' };
+    }
+
+    // 检测3: 速度检查（结合时间计算速度，防止瞬间飘移）
+    if (lastGpsUpdateTime > 0) {
+        const timeDiff = (Date.now() - lastGpsUpdateTime) / 1000; // 秒
+        if (timeDiff > 0.1) { // 至少间隔0.1秒才计算速度
+            const speed = jumpDist / timeDiff; // 米/秒
+            const maxSpeed = 20; // 最大速度20m/s (72km/h，工业车不可能超过这个速度)
+            if (speed > maxSpeed) {
+                console.warn('【GPS过滤】❌ 速度过快:', speed.toFixed(2), 'm/s (', (speed * 3.6).toFixed(1), 'km/h) >', maxSpeed, 'm/s');
+                return { isValid: false, reason: 'speed_too_high' };
+            }
+        }
+    }
+
+    // 检测4: 连续性检查（与最近N个位置的平均距离对比）
+    if (gpsRecentPositions.length >= 3) {
+        let avgDist = 0;
+        for (let i = 0; i < gpsRecentPositions.length; i++) {
+            avgDist += calculateDistanceBetweenPoints(gpsRecentPositions[i], newPos);
+        }
+        avgDist /= gpsRecentPositions.length;
+
+        // 如果与平均距离偏差超过阈值，可能是异常点
+        const deviationThreshold = maxJumpDist * 0.8;
+        if (avgDist > deviationThreshold) {
+            console.warn('【GPS过滤】❌ 与历史位置偏差过大:', avgDist.toFixed(2), 'm >', deviationThreshold.toFixed(2), 'm');
+            return { isValid: false, reason: 'deviation_from_history' };
+        }
+    }
+
+    // 所有检查通过
+    console.log('【GPS过滤】✓ 通过所有检查，跳跃距离:', jumpDist.toFixed(2), 'm');
+    return { isValid: true, reason: 'passed_all_checks' };
+}
+
+/**
+ * 添加有效的GPS位置到历史记录
+ */
+function addValidGPSPosition(pos) {
+    gpsRecentPositions.push(pos);
+    // 保持历史记录大小
+    while (gpsRecentPositions.length > gpsMaxHistorySize) {
+        gpsRecentPositions.shift();
+    }
+}
+
+/**
+ * 清空GPS历史记录（开始新导航时调用）
+ */
+function clearGPSHistory() {
+    gpsRecentPositions = [];
+}
+
 // ====== 开始实时GPS导航（真实导航） ======
 function startRealNavigationTracking() {
     if (!('geolocation' in navigator)) {
@@ -3798,6 +3937,20 @@ function startRealNavigationTracking() {
 
     // 【新增】清空已访问的途径点记录（开始新的导航）
     visitedWaypoints.clear();
+
+    // 【新增】清空GPS历史记录
+    clearGPSHistory();
+
+    // 【新增】清空播报记录
+    lastNavPromptMessage = '';
+    lastNavPromptTime = 0;
+
+    console.log('【GPS过滤】导航开始，GPS过滤器状态:');
+    console.log('  - 启用状态:', gpsFilterEnabled);
+    console.log('  - 最大跳跃距离:', gpsMaxJumpDistance, '米');
+    console.log('  - 历史记录大小:', gpsMaxHistorySize);
+    console.log('  - GPS历史已清空');
+    console.log('  - 播报记录已清空');
 
     // 清理之前的标记（确保重新开始）
     if (userMarker && navigationMap) {
@@ -3893,6 +4046,21 @@ function startRealNavigationTracking() {
 
             // 获取GPS精度
             const accuracy = pos.coords.accuracy || 10; // 默认10米
+
+            // 【新增】GPS数据过滤：检测并拒绝异常GPS数据（如飘移）
+            const validCheck = isGPSDataValid(curr, accuracy);
+            if (!validCheck.isValid) {
+                console.warn('【GPS过滤】拒绝异常GPS数据:', curr, '原因:', validCheck.reason);
+                // 使用上一次有效位置继续导航
+                if (gpsRecentPositions.length > 0) {
+                    console.log('【GPS过滤】使用上一次有效位置:', gpsRecentPositions[gpsRecentPositions.length - 1]);
+                }
+                return; // 直接丢弃这个异常GPS数据
+            }
+
+            // 通过过滤，添加到有效GPS历史记录
+            addValidGPSPosition(curr);
+            console.log('【GPS过滤】接受GPS数据:', curr, '原因:', validCheck.reason);
 
             // 【改进】保存最后一次成功的GPS位置，用于GPS信号丢失时恢复导航
             lastGpsPos = curr;
@@ -4475,6 +4643,13 @@ function stopRealNavigationTracking() {
         clearInterval(gpsTimeoutCheckTimer);
         gpsTimeoutCheckTimer = null;
     }
+
+    // 【新增】清空GPS历史记录
+    clearGPSHistory();
+
+    // 【新增】清空播报记录
+    lastNavPromptMessage = '';
+    lastNavPromptTime = 0;
 
     lastGpsPos = null;
     lastGpsUpdateTime = 0;
@@ -5150,11 +5325,28 @@ function startRealtimePositionTracking() {
             const curr = [lng, lat];
             console.log('当前位置:', curr);
 
+            // 获取GPS精度
+            const accuracy = pos.coords.accuracy || 10; // 默认10米
+
+            // 【新增】GPS数据过滤：检测并拒绝异常GPS数据（如飘移）
+            const validCheck = isGPSDataValid(curr, accuracy);
+            if (!validCheck.isValid) {
+                console.warn('【导航前GPS过滤】拒绝异常GPS数据:', curr, '原因:', validCheck.reason);
+                // 使用上一次有效位置
+                if (gpsRecentPositions.length > 0) {
+                    console.log('【导航前GPS过滤】使用上一次有效位置:', gpsRecentPositions[gpsRecentPositions.length - 1]);
+                }
+                return; // 直接丢弃这个异常GPS数据
+            }
+
+            // 通过过滤，添加到有效GPS历史记录
+            addValidGPSPosition(curr);
+            console.log('【导航前GPS过滤】接受GPS数据:', curr, '原因:', validCheck.reason);
+
             // 注意:起点坐标已在loadRouteData()阶段从sessionStorage读取并修正,
             // 这里不需要再次更新,避免重复规划路线
 
             // 获取GPS精度并更新精度圈
-            const accuracy = pos.coords.accuracy || 10; // 默认10米
             updateAccuracyCircle(curr, accuracy);
             console.log('GPS精度:', accuracy, '米');
 
@@ -5264,6 +5456,9 @@ function stopRealtimePositionTracking() {
         }
         preNavWatchId = null;
     }
+    // 【新增】清空GPS历史记录
+    clearGPSHistory();
+
     // 清理精度圈
     if (accuracyCircle && navigationMap) {
         navigationMap.remove(accuracyCircle);

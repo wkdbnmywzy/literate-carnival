@@ -380,28 +380,32 @@
 
 .tip-main-text {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
+    align-items: center; /* 改为居中对齐 */
+    gap: 4px;
+    flex-wrap: nowrap; /* 不换行 */
 }
 
 .tip-distance-ahead {
-    font-size: 25px;
-    font-weight: 700;
+    font-size: 24px; /* 改为适中大小，适合一行显示 */
+    font-weight: 600;
     color: #FFFFFF; /* 白色 */
-    line-height: 1;
+    line-height: 1.2;
+    white-space: nowrap; /* 不换行 */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 .tip-distance-unit {
-    font-size: 16px;
+    font-size: 20px;
     font-weight: 600;
-    color: #E3F2FD; /* 浅蓝白色 */
+    color: #FFFFFF;
+    line-height: 1.2;
 }
 
 .tip-action {
     font-size: 24px;
-    font-weight: 700;
-    color: #FFFFFF; /* 白色 */
+    font-weight: 600;
+    color: #FFFFFF;
+    line-height: 1.2;
 }
 
 .tip-divider {
