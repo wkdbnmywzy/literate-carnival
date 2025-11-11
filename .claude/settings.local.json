@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree C:Users33138Downloads导航- -L 3 -I node_modules)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

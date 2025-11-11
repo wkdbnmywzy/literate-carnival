@@ -27,6 +27,8 @@ let navStartTime = 0;             // 导航开始时间（ms）
 let gpsWatchId = null;            // 浏览器GPS监听ID（真实导航）
 let preNavWatchId = null;         // 导航前的位置监听ID
 let lastGpsPos = null;            // 上一次GPS位置（用于计算朝向）
+let lastGpsUpdateTime = 0;        // 【改进】上一次GPS更新时间戳（毫秒）
+let gpsTimeoutCheckTimer = null;  // 【改进】GPS超时检查定时器
 let geoErrorNotified = false;     // 避免重复弹错误
 let lastRenderPosNav = null;      // 上一次用于渲染/吸附后的显示位置（用于计算视觉朝向）
 let lastProjectionNav = null;     // 上一次的投影结果（用于带方向性约束的平行线过滤）
@@ -799,15 +801,23 @@ function planRoute() {
     }
     sequencePoints.push(resolvePointPosition(routeData.end));
 
-    // 逐段使用KML路径规划，失败则回退为直线路段
+    // 【改进2】预加载所有路段：一次性规划所有段，然后组合显示
+    // 这样可以确保在显示路线时，所有段的数据都已准备好
     let combinedPath = [];
     let totalDistance = 0;
+    let segmentResults = [];  // 保存所有段的规划结果，用于调试和后续使用
 
+    console.log(`开始规划 ${sequencePoints.length - 1} 个路段...`);
+
+    // 第一步：预加载所有路段规划
     for (let i = 0; i < sequencePoints.length - 1; i++) {
         const a = sequencePoints[i];
         const b = sequencePoints[i + 1];
 
+        console.log(`规划路段 ${i + 1}/${sequencePoints.length - 1}...`);
+
         let segResult = planKMLRoute(a, b);
+        segmentResults.push({ index: i, from: a, to: b, result: segResult });
 
         if (segResult && segResult.path && segResult.path.length >= 2) {
             // 拼接路径（智能去重：检查是否有重复点）
@@ -837,7 +847,7 @@ function planRoute() {
             }
             totalDistance += (segResult.distance || 0);
         } else {
-            console.warn('路段KML规划失败，使用直线段');
+            console.warn(`路段 ${i + 1} KML规划失败，使用直线段`);
             // 使用直线段作为备选
             if (combinedPath.length > 0) {
                 combinedPath.push(b);
@@ -855,13 +865,22 @@ function planRoute() {
         }
     }
 
+    console.log(`所有 ${segmentResults.length} 个路段规划完成。组合路径包含 ${combinedPath.length} 个点，总距离: ${totalDistance.toFixed(2)} 米`);
+
+    // 第二步：一次性显示完整路线（包含所有段）
     if (combinedPath.length >= 2) {
         // 更新距离与时间
         updateRouteInfoFromKML({ distance: totalDistance });
-        // 绘制合并后的路线
+        // 【关键】绘制合并后的完整路线（所有段已包含）
         drawKMLRoute({ path: combinedPath });
-        // 调整地图视野
+        // 调整地图视野以显示整条路线
         adjustMapView(startLngLat, endLngLat);
+        // 强制刷新地图，确保整条路线可见
+        try {
+            navigationMap.fitView([], true, [50, 50, 50, 50]);
+        } catch (e) {
+            console.warn('fitView 失败:', e);
+        }
     } else {
         console.warn('合并路径失败，回退直线起终点');
         drawStraightLine(startLngLat, endLngLat);
@@ -1001,6 +1020,8 @@ function drawKMLRoute(routeResult) {
         return;
     }
 
+    console.log(`【路线绘制】开始绘制路线，包含 ${path.length} 个点`);
+
     // 绘制路线（与首页规划阶段保持一致的样式）
     try {
         routePolyline = new AMap.Polyline({
@@ -1017,14 +1038,9 @@ function drawKMLRoute(routeResult) {
         // 记录当前路线线宽
         try { routeStrokeWeight = 16; } catch(e) {}
 
-        // 强制刷新地图
-        try {
-            navigationMap.setZoom(navigationMap.getZoom());
-        } catch (e) {
-            console.warn('触发地图重绘失败:', e);
-        }
+        console.log('【路线绘制】Polyline 已添加到地图');
 
-        // 自动调整地图视野到路径范围
+        // 【改进】自动调整地图视野到路径范围
         try {
             // 计算路径的边界
             let minLng = path[0][0], maxLng = path[0][0];
@@ -1040,23 +1056,40 @@ function drawKMLRoute(routeResult) {
                 maxLat = Math.max(maxLat, lat);
             });
 
-            // 创建边界并设置地图视野
+            console.log(`【路线绘制】路线边界: 经度[${minLng.toFixed(6)}, ${maxLng.toFixed(6)}], 纬度[${minLat.toFixed(6)}, ${maxLat.toFixed(6)}]`);
+
+            // 创建边界并设置地图视野 - 确保完整路线可见
             const bounds = new AMap.Bounds([minLng, minLat], [maxLng, maxLat]);
-            navigationMap.setBounds(bounds, false, [80, 80, 80, 80]); // 添加80px内边距
+            navigationMap.setBounds(bounds, false, [100, 100, 100, 100]); // 增加内边距到100px，确保路线完整可见
+            console.log('【路线绘制】地图视野已调整');
         } catch (e) {
             console.error('调整地图视野失败:', e);
         }
 
-        // 检查Polyline是否真的在地图上
+        // 【改进】确保地图重绘
+        try {
+            navigationMap.setZoom(navigationMap.getZoom());
+            console.log('【路线绘制】地图已刷新');
+        } catch (e) {
+            console.warn('地图刷新失败:', e);
+        }
+
+        // 【改进】异步验证Polyline是否真的在地图上
         setTimeout(() => {
-            const allOverlays = navigationMap.getAllOverlays('polyline');
-            if (allOverlays.length === 0) {
-                console.error('警告: 地图上没有找到任何Polyline');
+            try {
+                const allOverlays = navigationMap.getAllOverlays('polyline');
+                if (allOverlays && allOverlays.length > 0) {
+                    console.log(`【路线绘制】✓ 验证成功：地图上有 ${allOverlays.length} 条Polyline`);
+                } else {
+                    console.error('【路线绘制】⚠ 警告: 地图上没有找到任何Polyline');
+                }
+            } catch (e) {
+                console.warn('验证Polyline失败:', e);
             }
         }, 500);
 
     } catch (error) {
-        console.error('创建Polyline失败:', error);
+        console.error('【路线绘制】✗ 创建Polyline失败:', error);
         console.error('错误详情:', error.stack);
     }
 }
@@ -1796,7 +1829,7 @@ function startNavigationUI() {
 
     isNavigating = true;
     hasReachedStart = false; // 重置：要求先到达起点附近再开始沿路网导航
-    isOffRoute = false;  // 重置偏离路径状态
+    isOffRoute = false;  // 重置偏离路路径状态
     maxPassedSegIndex = -1; // 重置已走过的最远点索引
     passedSegments.clear(); // 清空已走过的路段标记
     visitedWaypoints.clear(); // 清空已访问的途径点
@@ -1826,21 +1859,34 @@ function startNavigationUI() {
     // 更新目的地信息（从KML数据中获取）
     updateDestinationInfo();
 
-    // 初始化导航数据
+    // 【改进】立即显示完整路线
     if (routePolyline && typeof routePolyline.getPath === 'function') {
-        navigationPath = routePolyline.getPath();
+        const fullPath = routePolyline.getPath();
+        navigationPath = fullPath;
         currentNavigationIndex = 0;
+
+        // 【改进】在导航开始时立即显示完整路线（绿色）
+        // 不需要等待用户到达起点，即刻显示用户所有需要走的路线
+        try {
+            if (routePolyline && typeof routePolyline.setPath === 'function') {
+                routePolyline.setPath(fullPath);
+            }
+            console.log('【导航开始】立即显示完整路线，共', fullPath.length, '个路径点');
+        } catch (e) {
+            console.warn('显示完整路线失败:', e);
+        }
 
         // 查找第一个转向点
         findNextTurnPoint();
 
-            // 基于当前规划路径构建“途经点索引映射”，用于到达/转向提示
-            try {
-                waypointIndexMap = buildWaypointIndexMap(navigationPath, routeData && routeData.waypoints);
-            } catch (e) {
-                console.warn('构建途经点索引映射失败:', e);
-                waypointIndexMap = [];
-            }
+        // 基于当前规划路径构建"途经点索引映射"，用于到达/转向提示
+        try {
+            waypointIndexMap = buildWaypointIndexMap(navigationPath, routeData && routeData.waypoints);
+            console.log('【导航开始】构建途经点索引映射，共', waypointIndexMap.length, '个途经点');
+        } catch (e) {
+            console.warn('构建途经点索引映射失败:', e);
+            waypointIndexMap = [];
+        }
     }
 
     // 更新导航提示信息
@@ -3741,12 +3787,19 @@ function startRealNavigationTracking() {
         gpsWatchId = null;
     }
 
-    // GPS 高精度定位配置：优化以提高定位频率和精度
+    // GPS 高精度定位配置：优化以提高定位精度
     const options = {
-        enableHighAccuracy: true,  // 启用高精度模式
-        timeout: 5000,             // 超时时间：改为5秒（加快超时反应）
-        maximumAge: 0              // 缓存时间：0ms（每次都获取最新位置，不使用缓存）
+        enableHighAccuracy: true,  // ✓ 启用高精度模式（最重要）
+        timeout: 5000,             // 5秒超时：如果5秒内获不到位置就报错
+        maximumAge: 0              // ✓ 不使用缓存，每次都获取最新位置
     };
+
+    // 【调试信息】GPS配置
+    console.log('【导航GPS配置】');
+    console.log('  - 高精度模式: 启用');
+    console.log('  - 缓存模式: 禁用（每次都获取最新）');
+    console.log('  - 超时时间: 5秒');
+    console.log('  - 实际频率: 取决于设备GPS模块和浏览器（通常0.5-2秒/次）');
 
     // 在用户操作开始导航时，尝试开启设备方向监听（iOS 需权限）
     tryStartDeviceOrientationNav();
@@ -3766,10 +3819,23 @@ function startRealNavigationTracking() {
             } catch (e) { console.warn('WGS84->GCJ-02 转换失败，使用原始坐标:', e); }
             const curr = [lng, lat];
 
-            // 获取GPS精度并更新精度圈
+            // 获取GPS精度
             const accuracy = pos.coords.accuracy || 10; // 默认10米
+
+            // 【改进】保存最后一次成功的GPS位置，用于GPS信号丢失时恢复导航
+            lastGpsPos = curr;
+            currentAccuracy = accuracy;
+            lastGpsUpdateTime = Date.now();  // 【改进】记录GPS更新时间
+
+            // 更新精度圈
             updateAccuracyCircle(curr, accuracy);
-            console.log('GPS位置更新, 精度:', accuracy, '米, 位置:', curr);
+            console.log('【GPS成功】位置更新, 精度:', accuracy, '米, 位置:', curr);
+
+            // 【改进】添加GPS信号恢复的日志
+            if (geoErrorNotified) {
+                console.log('【GPS恢复】信号已恢复，继续定位');
+                geoErrorNotified = false;
+            }
 
             // 初始化标记与灰色路径
             if (!userMarker) {
@@ -4145,14 +4211,76 @@ function startRealNavigationTracking() {
             }
         },
         err => {
-            console.error('GPS定位失败:', err);
+            // 【改进】完善GPS信号丢失的处理机制
+            console.error('【GPS错误】定位失败', err);
+
+            let errorMsg = '未知错误';
+            let errorCode = err.code;
+
+            if (err.code === 1) {
+                errorMsg = '权限被拒绝（Permission Denied）- 请检查浏览器位置权限';
+            } else if (err.code === 2) {
+                errorMsg = '位置不可用（Position Unavailable）- GPS信号丢失或网络问题';
+            } else if (err.code === 3) {
+                errorMsg = '获取位置超时（Timeout）- GPS获取超过5秒';
+            } else {
+                errorMsg = `未知错误: ${err.message}`;
+            }
+
+            console.error(`【GPS错误详情】错误码: ${errorCode}, 信息: ${errorMsg}`);
+
+            // 【改进】只在首次失败时弹窗，后续失败只记录日志
             if (!geoErrorNotified) {
-                alert('无法获取定位，实时导航不可用');
+                console.warn('【GPS警告】首次定位失败，将继续尝试...');
                 geoErrorNotified = true;
+                // 改为显示简短提示而不是alert（避免打断导航）
+                try {
+                    const tipCard = document.getElementById('navigation-tip-card');
+                    if (tipCard) {
+                        const originalContent = tipCard.innerHTML;
+                        tipCard.innerHTML = `<div style="padding: 10px; background: #ff9800; color: white; border-radius: 5px;">
+                            ⚠ GPS信号丢失，将在信号恢复时继续定位
+                        </div>`;
+                        setTimeout(() => {
+                            tipCard.innerHTML = originalContent;
+                        }, 3000);
+                    }
+                } catch (e) {
+                    console.warn('提示显示失败:', e);
+                }
+            } else {
+                // 【改进】持续记录GPS失败，便于调试
+                console.log(`【GPS失败重试】${new Date().toLocaleTimeString()} - ${errorMsg}`);
+            }
+
+            // 【改进】使用上一次成功的GPS位置继续导航
+            if (lastGpsPos && Array.isArray(lastGpsPos) && lastGpsPos.length === 2) {
+                console.log('【GPS恢复】使用上一次已知位置继续导航:', lastGpsPos);
+                // 不更新位置，保持最后一次成功的位置，继续导航逻辑
+            } else {
+                console.log('【GPS恢复】未获取到上一次位置，将等待下次定位成功');
             }
         },
         options
     );
+
+    // 【改进】启动GPS超时监控：如果GPS长时间没有更新，记录告警
+    lastGpsUpdateTime = Date.now();
+    if (gpsTimeoutCheckTimer) clearInterval(gpsTimeoutCheckTimer);
+    gpsTimeoutCheckTimer = setInterval(() => {
+        if (!isNavigating) {
+            clearInterval(gpsTimeoutCheckTimer);
+            gpsTimeoutCheckTimer = null;
+            return;
+        }
+
+        const timeSinceLastUpdate = Date.now() - lastGpsUpdateTime;
+        const timeoutThresholdMs = 15000; // 15秒无更新判定为超时
+
+        if (timeSinceLastUpdate > timeoutThresholdMs && lastGpsPos) {
+            console.warn(`【GPS超时】${(timeSinceLastUpdate / 1000).toFixed(1)}秒内没有收到GPS更新，使用缓存位置继续导航`);
+        }
+    }, 5000); // 每5秒检查一次
 }
 
 // ====== 途径点索引映射与到达判定 ======
@@ -4190,8 +4318,7 @@ function getNearestUnvisitedWaypointDistanceMeters(currPos, path, wptMap) {
 
 function markWaypointArrivalIfNeeded(currPos, path) {
     if (!Array.isArray(path) || path.length < 2 || !Array.isArray(waypointIndexMap) || waypointIndexMap.length === 0) return;
-    let arriveDistThresh = 3; // 距离阈值：3米
-    let indexErrorMargin = 3;  // 索引误差范围：±3个点
+    let arriveDistThresh = 8; // 【改进】距离阈值：默认8米（原3米）
     try {
         if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.waypointArrivalDistanceMeters === 'number') {
             arriveDistThresh = MapConfig.navigationConfig.waypointArrivalDistanceMeters;
@@ -4199,22 +4326,30 @@ function markWaypointArrivalIfNeeded(currPos, path) {
     } catch (e) {}
     const proj = projectPointOntoPathMeters(currPos, path);
     if (!proj) return;
+
     for (const w of waypointIndexMap) {
         if (!w || visitedWaypoints.has(w.name)) continue;
         if (typeof w.index !== 'number') continue;
 
-        // 新判定逻辑：索引误差 ≤ 3 + 距离 ≤ 3米，两个条件都满足才算到达
-        const currIdx = Math.round(proj.index);
-        const indexDiff = Math.abs(currIdx - w.index);
+        // 【改进的判定逻辑】只基于距离判定，更早地识别到达
+        // 原逻辑：索引误差 ≤ 3 + 距离 ≤ 3米（两个条件都要满足）
+        // 新逻辑：距离 ≤ arriveDistThresh 米即可（更宽松）
         const d = computeDistanceToIndexMeters(currPos, path, w.index) || Infinity;
 
-        if (indexDiff <= indexErrorMargin && isFinite(d) && d <= arriveDistThresh) {
+        if (isFinite(d) && d <= arriveDistThresh) {
             visitedWaypoints.add(w.name);
-            console.log('到达途径点:', w.name, '(索引差:', indexDiff, '米数差:', d.toFixed(2), '米)');
+            console.log('【途径点检测】✓ 到达途径点:', w.name, '(距离:', d.toFixed(2), '米)');
 
             // 到达途径点，切换到下一个目标
             switchToNextTarget();
             updateDestinationInfo();
+
+            // 【改进】触发语音提示
+            try {
+                speakNavigation(`已到达${w.name}`);
+            } catch (e) {
+                console.warn('语音提示失败:', e);
+            }
         }
     }
 }
@@ -4242,7 +4377,15 @@ function stopRealNavigationTracking() {
         try { navigator.geolocation.clearWatch(gpsWatchId); } catch (e) {}
         gpsWatchId = null;
     }
+
+    // 【改进】清理GPS超时监控
+    if (gpsTimeoutCheckTimer) {
+        clearInterval(gpsTimeoutCheckTimer);
+        gpsTimeoutCheckTimer = null;
+    }
+
     lastGpsPos = null;
+    lastGpsUpdateTime = 0;
     lastRenderPosNav = null;
     lastProjectionNav = null;  // 重置上次投影信息
     if (userMarker && navigationMap) { navigationMap.remove(userMarker); userMarker = null; }
@@ -4526,22 +4669,13 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         }
     }
 
-    // 构建剩余路径（绿色）- 改进: 只到当前目标点，而非最终终点
+    // 构建剩余路径（绿色）- 【改进】始终显示到最终终点，不受当前目标点限制
     let remainingPath = [];
 
-    // 确定终点索引: 如果有当前目标点(途径点),则只画到途径点; 否则画到最终终点
-    let endIndex = fullPath.length - 1; // 默认到最终终点
-    try {
-        if (currentTargetPoint && currentTargetPoint.type === 'waypoint' && typeof currentTargetPoint.index === 'number') {
-            // 有途径点: 绿线只画到当前途径点
-            endIndex = Math.min(currentTargetPoint.index, fullPath.length - 1);
-            console.log('绿线终点: 途径点', currentTargetPoint.name, '索引:', endIndex);
-        } else {
-            console.log('绿线终点: 最终终点 索引:', endIndex);
-        }
-    } catch (e) {
-        console.error('确定终点索引失败:', e);
-    }
+    // 【改进】始终使用最终终点作为绿线的终点
+    // 这样用户可以看到完整的路线，了解整个导航任务
+    const endIndex = fullPath.length - 1; // 永远显示到最终终点
+    console.log('【完整路线】绿线将显示完整路线，从当前位置到最终终点，索引:', endIndex);
 
     if (onRoute) {
         // 剩余路径 = [投影点] + [该段终点...endIndex的所有节点]

@@ -112,8 +112,12 @@ const MapConfig = {
         turnPromptDistanceMeters: 40,
         // 超过该距离时，不优先提示"掉头"，而优先展示后续非掉头的转向或直行（单位：米）
         uturnPromptDistanceMeters: 20,
-        // 判定"到达途径点"的距离阈值（米）。使用新的"索引+距离"双重判定
-        waypointArrivalDistanceMeters: 3,
+        // 【改进】判定"到达途径点"的距离阈值（米）。增加到8米，更早地检测到达
+        // 原值：3米（需要非常接近才能触发）
+        // 新值：8米（提前检测，考虑GPS精度±5-10米）
+        waypointArrivalDistanceMeters: 8,
+        // 吸附到路线的阈值（米）：当用户距离路线≤此值时，自动吸附到最近的路线点
+        snapToRouteDistanceMeters: 12,
         // 仅当接近未到达的途径点时才允许显示“掉头”提示（米）
         waypointUturnTriggerMeters: 18,
         // 连续路口的提示合并最小间距（米）：小于该值的相邻拐点会被合并，避免抖动
