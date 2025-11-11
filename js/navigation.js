@@ -1866,7 +1866,6 @@ function startNavigationUI() {
         navigationPath = fullPath;
         currentNavigationIndex = 0;
 
-        // 【改进】在导航开始时立即显示完整路线（绿色）
         // 不需要等待用户到达起点，即刻显示用户所有需要走的路线
         try {
             if (routePolyline && typeof routePolyline.setPath === 'function') {
@@ -1900,7 +1899,6 @@ function startNavigationUI() {
     enableRouteArrows();
 
     console.log('导航已开始');
-    try { speakNavigation('导航已开始，请注意行车安全'); } catch (e) {}
 }
 
 // 停止导航UI
@@ -2299,35 +2297,58 @@ function updateNavigationTip() {
                 lastDirectionType = stableDirectionType;
             } catch (e) { /* 忽略错误 */ }
 
-            // 生成播放文案（简单规则）：
-            try {
-                const d = Math.round(distanceToNext || 0);
-                let msg = '';
-                if (directionType === 'left' || directionType === 'right' || directionType === 'uturn' || directionType === 'backward') {
-                    // 近距离提示使用“现在...”，否则使用“前方X米处...”
-                    if (d <= 8) {
-                        if (directionType === 'left') msg = '请现在左转';
-                        else if (directionType === 'right') msg = '请现在右转';
-                        else if (directionType === 'uturn' || directionType === 'backward') msg = '请在就地掉头';
-                    } else {
-                        if (directionType === 'left') msg = `前方${d}米处左转`;
-                        else if (directionType === 'right') msg = `前方${d}米处右转`;
-                        else if (directionType === 'uturn' || directionType === 'backward') msg = `前方${d}米处掉头`;
-                    }
-                } else if (directionType === 'forward' || directionType === 'straight') {
-                    if (d <= 20) msg = '继续直行';
-                    else msg = `继续直行，约${d}米`;
-                } else if (directionType === 'offroute') {
-                    msg = '您已偏离路线，请尽快回到规划路线';
-                }
+                    // 不在这里直接生成并播报语音，改为在 DOM 更新后读取信息提示卡上的可见文本并播报，
+                    // 这样可确保语音内容与信息提示栏完全一致。
+                    // 仍保留基于计算的文案作为回退（storedFallbackMsg），以防提示卡不可用。
+                    try {
+                        const d = Math.round(distanceToNext || 0);
+                        let storedFallbackMsg = '';
+                        if (directionType === 'left' || directionType === 'right' || directionType === 'uturn' || directionType === 'backward') {
+                            if (d <= 8) {
+                                if (directionType === 'left') storedFallbackMsg = '请现在左转';
+                                else if (directionType === 'right') storedFallbackMsg = '请现在右转';
+                                else if (directionType === 'uturn' || directionType === 'backward') storedFallbackMsg = '请在就地掉头';
+                            } else {
+                                if (directionType === 'left') storedFallbackMsg = `前方${d}米处左转`;
+                                else if (directionType === 'right') storedFallbackMsg = `前方${d}米处右转`;
+                                else if (directionType === 'uturn' || directionType === 'backward') storedFallbackMsg = `前方${d}米处掉头`;
+                            }
+                        } else if (directionType === 'forward' || directionType === 'straight') {
+                            if (d <= 20) storedFallbackMsg = '继续直行';
+                            else storedFallbackMsg = `继续直行，约${d}米`;
+                        } else if (directionType === 'offroute') {
+                            storedFallbackMsg = '您已偏离路线，请尽快回到规划路线';
+                        }
 
-                if (msg) {
-                    // 限制短时间内重复播报，增加抑制时间到3秒，避免重复播报
-                    speakNavigation(msg, { suppressionMs: 3000 });
-                }
-            } catch (e) {
-                console.warn('生成语音提示失败:', e);
-            }
+                        // 将回退文案暂存到 options 里，供后续在 DOM 更新后使用
+                        // 我们等待 updateDirectionIcon 完成 DOM 更新后再读取信息提示栏文本并播报
+                        // 通过闭包传递 storedFallbackMsg
+                        (function(fallback) {
+                            // 延迟短暂时间，确保 DOM 更新完成（updateDirectionIcon 在稍后被调用）
+                            setTimeout(function() {
+                                try {
+                                    const tipCard = document.getElementById('navigation-tip-card');
+                                    let textToSpeak = '';
+                                    if (tipCard && tipCard.classList && tipCard.classList.contains('active')) {
+                                        // 使用提示卡的可见文本（innerText），这会与页面上显示的内容一模一样
+                                        const visible = (tipCard.innerText || '').trim();
+                                        if (visible) textToSpeak = visible;
+                                    }
+                                    // 如果没有可读的提示卡文本，使用回退的计算文案
+                                    if (!textToSpeak) textToSpeak = fallback;
+
+                                    if (textToSpeak) {
+                                        speakNavigation(textToSpeak, { suppressionMs: 3000 });
+                                    }
+                                } catch (e) {
+                                    // 回退到直接播报计算文案
+                                    try { if (fallback) speakNavigation(fallback, { suppressionMs: 3000 }); } catch (ee) {}
+                                }
+                            }, 120); // 120ms 延迟：足够让 DOM 更新并渲染
+                        })(storedFallbackMsg);
+                    } catch (e) {
+                        console.warn('准备语音提示失败:', e);
+                    }
         } catch (e) {}
         updateDirectionIcon(directionType, distanceToNext);
     
@@ -3218,8 +3239,6 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
         if (distanceUnitElem) {
             distanceUnitElem.style.display = 'none';
         }
-
-        // 不改变背景色，保持蓝色一致性
 
         // 这里直接返回，避免后续正常导航逻辑覆盖图标与文案
         return;
