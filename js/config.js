@@ -98,22 +98,22 @@ const MapConfig = {
     navigationConfig: {
         // 强制基于路网（未经过的路线）计算提示与图标
         usePathBasedPrompts: true,
-        // 优先使用“预计算的转向序列”来生成提示（基于规划路径，抖动更少）
+        // 优先使用"预计算的转向序列"来生成提示（基于规划路径，抖动更少）
         usePrecomputedManeuvers: true,
     // 接近起点时，允许"以我为起点"自动对齐到路网的距离（米）
      startRebaseDistanceMeters: 12,
-        // 判定到达终点的沿路网剩余距离（米）。建议10~15米，过大会提前结束
-        endArrivalDistanceMeters: 12,
+        // 判定到达终点的距离阈值（米）。使用新的"索引+距离"双重判定
+        endArrivalDistanceMeters: 3,
     // 是否要求到达起点附近再开始沿路网导航
     // true: 只有靠近规划起点(≤ startRebaseDistanceMeters)才开始；
     // false: 只要投影点在路网上即可开始
     requireStartAtOrigin: true,
         // 与下一个转向的距离大于该阈值时，顶部图标优先显示"直行"，避免误解为仍需立即转向（单位：米）
         turnPromptDistanceMeters: 40,
-        // 超过该距离时，不优先提示“掉头”，而优先展示后续非掉头的转向或直行（单位：米）
+        // 超过该距离时，不优先提示"掉头"，而优先展示后续非掉头的转向或直行（单位：米）
         uturnPromptDistanceMeters: 20,
-        // 判定“到达途径点”的沿路网距离阈值（米）
-        waypointArrivalDistanceMeters: 15,
+        // 判定"到达途径点"的距离阈值（米）。使用新的"索引+距离"双重判定
+        waypointArrivalDistanceMeters: 3,
         // 仅当接近未到达的途径点时才允许显示“掉头”提示（米）
         waypointUturnTriggerMeters: 18,
         // 连续路口的提示合并最小间距（米）：小于该值的相邻拐点会被合并，避免抖动

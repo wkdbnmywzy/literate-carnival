@@ -348,13 +348,13 @@
 .tip-card-content {
     display: flex;
     align-items: center;
-    padding: 24px 20px;
-    gap: 20px;
+    padding: 20px 16px;
+    gap: 16px;
 }
 
 .tip-direction-icon {
-    width: 80px;
-    height: 80px;
+    width: 70px;
+    height: 70px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -374,31 +374,32 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     color: #FFFFFF; /* 文字改为白色 */
 }
 
 .tip-main-text {
     display: flex;
     align-items: baseline;
-    gap: 12px;
+    gap: 8px;
+    flex-wrap: wrap;
 }
 
 .tip-distance-ahead {
-    font-size: 36px;
+    font-size: 32px;
     font-weight: 700;
     color: #FFFFFF; /* 白色 */
     line-height: 1;
 }
 
 .tip-distance-unit {
-    font-size: 20px;
+    font-size: 16px;
     font-weight: 600;
     color: #E3F2FD; /* 浅蓝白色 */
 }
 
 .tip-action {
-    font-size: 28px;
+    font-size: 24px;
     font-weight: 700;
     color: #FFFFFF; /* 白色 */
 }
@@ -413,9 +414,10 @@
 .tip-details {
     display: flex;
     align-items: center;
-    gap: 20px;
-    font-size: 16px;
+    gap: 16px;
+    font-size: 14px;
     color: #E3F2FD; /* 浅蓝白色 */
+    flex-wrap: wrap;
 }
 
 .tip-remaining-label {
@@ -550,6 +552,10 @@
     .tip-direction-icon {
         width: 60px;
         height: 60px;
+    }
+
+    .tip-distance-ahead {
+        font-size: 28px;
     }
 
     .tip-action {

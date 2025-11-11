@@ -18,6 +18,7 @@ let endMarker = null;
 let waypointMarkers = [];
 // 导航运动相关对象
 let userMarker = null;            // 代表"我的位置"的移动标记
+let headingLabel = null;          // 位置标记周围的方位角标签
 let accuracyCircle = null;        // GPS精度圈
 let currentAccuracy = 0;          // 当前GPS精度（米）
 let navigationTimer = null;       // 模拟导航的定时器
@@ -28,6 +29,7 @@ let preNavWatchId = null;         // 导航前的位置监听ID
 let lastGpsPos = null;            // 上一次GPS位置（用于计算朝向）
 let geoErrorNotified = false;     // 避免重复弹错误
 let lastRenderPosNav = null;      // 上一次用于渲染/吸附后的显示位置（用于计算视觉朝向）
+let lastProjectionNav = null;     // 上一次的投影结果（用于带方向性约束的平行线过滤）
 // 设备方向（用于箭头随朝向变化）
 let trackingDeviceOrientationNav = false;
 let deviceOrientationHandlerNav = null;
@@ -1701,6 +1703,7 @@ function cleanupMap() {
             if (endMarker) { navigationMap.remove(endMarker); endMarker = null; }
             if (waypointMarkers && waypointMarkers.length) { navigationMap.remove(waypointMarkers); waypointMarkers = []; }
             if (userMarker) { navigationMap.remove(userMarker); userMarker = null; }
+            if (headingLabel) { navigationMap.remove(headingLabel); headingLabel = null; }
             if (passedRoutePolyline) { navigationMap.remove(passedRoutePolyline); passedRoutePolyline = null; }
             if (deviatedRoutePolyline) { navigationMap.remove(deviatedRoutePolyline); deviatedRoutePolyline = null; }
             if (routePolyline) { navigationMap.remove(routePolyline); routePolyline = null; }
@@ -2814,6 +2817,94 @@ function navApplyHeadingToMarker(rawHeading) {
     } catch (err) {
         console.error('[nav] 应用朝向失败:', err);
     }
+
+    // 更新方位角标签显示
+    try {
+        updateHeadingLabel(rawHeading);
+    } catch (err) {
+        console.error('[nav] 更新方位角标签失败:', err);
+    }
+}
+
+// ====== 更新位置标记周围的方位角标签 ======
+function updateHeadingLabel(heading) {
+    if (!userMarker || heading === null || heading === undefined || isNaN(heading)) {
+        // 隐藏标签
+        if (headingLabel && navigationMap) {
+            navigationMap.remove(headingLabel);
+            headingLabel = null;
+        }
+        return;
+    }
+
+    try {
+        // 规范化朝向（0-360）
+        let normalizedHeading = heading % 360;
+        if (normalizedHeading < 0) normalizedHeading += 360;
+
+        // 获取用户位置
+        const markerPos = userMarker.getPosition();
+        if (!markerPos) return;
+
+        // 创建方向文本（使用中文方位表示）
+        let directionText = '';
+        if (normalizedHeading >= 337.5 || normalizedHeading < 22.5) {
+            directionText = '北';
+        } else if (normalizedHeading >= 22.5 && normalizedHeading < 67.5) {
+            directionText = '东北';
+        } else if (normalizedHeading >= 67.5 && normalizedHeading < 112.5) {
+            directionText = '东';
+        } else if (normalizedHeading >= 112.5 && normalizedHeading < 157.5) {
+            directionText = '东南';
+        } else if (normalizedHeading >= 157.5 && normalizedHeading < 202.5) {
+            directionText = '南';
+        } else if (normalizedHeading >= 202.5 && normalizedHeading < 247.5) {
+            directionText = '西南';
+        } else if (normalizedHeading >= 247.5 && normalizedHeading < 292.5) {
+            directionText = '西';
+        } else if (normalizedHeading >= 292.5 && normalizedHeading < 337.5) {
+            directionText = '西北';
+        }
+
+        // 显示度数和方向
+        const labelText = `${Math.round(normalizedHeading)}°\n${directionText}`;
+
+        // 创建或更新标签
+        if (!headingLabel) {
+            // 创建新的文本标签
+            const labelContent = document.createElement('div');
+            labelContent.style.cssText = `
+                background: rgba(0, 0, 0, 0.6);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 6px;
+                font-size: 12px;
+                font-weight: 600;
+                text-align: center;
+                white-space: nowrap;
+                line-height: 1.2;
+                pointer-events: none;
+            `;
+            labelContent.textContent = labelText;
+
+            headingLabel = new AMap.Marker({
+                position: markerPos,
+                content: labelContent,
+                offset: new AMap.Pixel(0, -55),  // 显示在图标上方
+                zIndex: 119,  // 在位置标记下方
+                map: navigationMap
+            });
+        } else {
+            // 更新标签位置和内容
+            headingLabel.setPosition(markerPos);
+            const labelElement = headingLabel.getDom();
+            if (labelElement && labelElement.textContent !== labelText) {
+                labelElement.textContent = labelText;
+            }
+        }
+    } catch (err) {
+        console.error('创建方位角标签失败:', err);
+    }
 }
 
 // 计算用于“转向提示判断”的有效用户朝向（度，0-360）
@@ -3345,7 +3436,7 @@ function updateAccuracyCircle(position, accuracy) {
     }
 
     currentAccuracy = accuracy || 10; // 默认10米精度
-    const displayRadius = currentAccuracy / 2; // 显示半径缩小为原来的一半
+    const displayRadius = currentAccuracy / 6; // 显示半径缩小为原来的1/6
 
     if (!accuracyCircle) {
         // 创建精度圈 - 使用非常明显的样式便于调试
@@ -3367,6 +3458,8 @@ function updateAccuracyCircle(position, accuracy) {
 
             // 显式添加到地图
             accuracyCircle.setMap(navigationMap);
+            // 添加后再次确保隐藏（setMap可能会重置visible属性）
+            accuracyCircle.hide();
 
             console.log('GPS精度圈创建成功:', accuracyCircle);
             console.log('精度圈属性:', {
@@ -3376,16 +3469,7 @@ function updateAccuracyCircle(position, accuracy) {
                 map: accuracyCircle.getMap()
             });
 
-            // 强制显示并刷新地图
-            setTimeout(() => {
-                if (accuracyCircle && typeof accuracyCircle.show === 'function') {
-                    accuracyCircle.show();
-                }
-                if (navigationMap) {
-                    navigationMap.setZoom(navigationMap.getZoom());
-                }
-                console.log('精度圈强制显示完成');
-            }, 100);
+            // 注意：精度圈默认隐藏（visible: false），通过hide()方法确保不显示
         } catch (e) {
             console.error('创建GPS精度圈失败:', e);
         }
@@ -3396,6 +3480,8 @@ function updateAccuracyCircle(position, accuracy) {
         try {
             accuracyCircle.setCenter(position);
             accuracyCircle.setRadius(displayRadius);
+            // 确保精度圈始终隐藏
+            accuracyCircle.hide();
         } catch (e) {
             console.error('更新GPS精度圈失败:', e);
         }
@@ -3655,7 +3741,12 @@ function startRealNavigationTracking() {
         gpsWatchId = null;
     }
 
-    const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 2000 };
+    // GPS 高精度定位配置：优化以提高定位频率和精度
+    const options = {
+        enableHighAccuracy: true,  // 启用高精度模式
+        timeout: 5000,             // 超时时间：改为5秒（加快超时反应）
+        maximumAge: 0              // 缓存时间：0ms（每次都获取最新位置，不使用缓存）
+    };
 
     // 在用户操作开始导航时，尝试开启设备方向监听（iOS 需权限）
     tryStartDeviceOrientationNav();
@@ -3716,7 +3807,7 @@ function startRealNavigationTracking() {
                 console.log('导航中我的位置标记创建成功');
             }
 
-            // 先基于路网计算“投影与吸附”
+            // 先基于路网计算"投影与吸附"
             let routeCheckResult = checkIfOnRouteWithAccuracy(curr, fullPath, accuracy);
             // 提前解构用于后续逻辑，避免未声明变量被引用
             let onRoute = !!(routeCheckResult && routeCheckResult.onRoute);
@@ -3724,6 +3815,15 @@ function startRealNavigationTracking() {
             let segIndex = (routeCheckResult && routeCheckResult.segmentIndex >= 0)
                 ? routeCheckResult.segmentIndex
                 : findClosestPathIndex(curr, fullPath);
+
+            // 使用带方向性约束的投影函数，防止平行线吸附错误
+            let projectionWithDirectionality = projectPointOntoPathMetersWithDirectionality(curr, fullPath, lastProjectionNav);
+            if (projectionWithDirectionality) {
+                projectionPoint = projectionWithDirectionality.projected;
+                segIndex = projectionWithDirectionality.index;
+                lastProjectionNav = projectionWithDirectionality;  // 保存本次投影，供下次使用
+            }
+
             let projectionPointForSnap = projectionPoint;
             let displayPos = curr;
             try {
@@ -4021,15 +4121,24 @@ function startRealNavigationTracking() {
                 updateNavigationTip();
             }
 
-            // 到终点判定（使用沿路网的剩余距离，避免未到就结束）
+            // 到终点判定：索引误差 ≤ 3 + 距离 ≤ 3米，两个条件都满足才算到达
             const end = fullPath[fullPath.length - 1];
             const distToEnd = calculateDistanceBetweenPoints(lastRenderPosNav || curr, end);
             const proj = projectPointOntoPathMeters(lastRenderPosNav || curr, fullPath);
             const remainRouteDist = proj ? computeRemainingRouteDistanceMeters(fullPath, proj) : distToEnd;
 
-            const nearByRoute = remainRouteDist <= endArrivalThresholdMeters;
-            const nearByAir = distToEnd <= Math.max(endArrivalThresholdMeters * 1.5, 10); // 双重保险：物理距离也接近
-            if (hasReachedStart && onRoute && nearByRoute && nearByAir) {
+            // 新判定逻辑：终点在路径最后，检查索引和距离
+            const endIndex = fullPath.length - 1;
+            const currIdx = proj ? Math.round(proj.index) : -1;
+            const indexDiff = Math.abs(currIdx - endIndex);
+            const indexErrorMargin = 3;  // 索引误差范围：±3个点
+            const arriveDistThresh = 3;  // 距离阈值：3米
+
+            const indexValid = indexDiff <= indexErrorMargin;
+            const distValid = distToEnd <= arriveDistThresh;
+
+            if (hasReachedStart && onRoute && indexValid && distValid) {
+                console.log('到达终点 (索引差:', indexDiff, '米数差:', distToEnd.toFixed(2), '米)');
                 finishNavigation();
                 // 到达后停止持续定位
                 stopRealNavigationTracking();
@@ -4081,10 +4190,11 @@ function getNearestUnvisitedWaypointDistanceMeters(currPos, path, wptMap) {
 
 function markWaypointArrivalIfNeeded(currPos, path) {
     if (!Array.isArray(path) || path.length < 2 || !Array.isArray(waypointIndexMap) || waypointIndexMap.length === 0) return;
-    let arriveThresh = 15; // 默认15米
+    let arriveDistThresh = 3; // 距离阈值：3米
+    let indexErrorMargin = 3;  // 索引误差范围：±3个点
     try {
         if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.waypointArrivalDistanceMeters === 'number') {
-            arriveThresh = MapConfig.navigationConfig.waypointArrivalDistanceMeters;
+            arriveDistThresh = MapConfig.navigationConfig.waypointArrivalDistanceMeters;
         }
     } catch (e) {}
     const proj = projectPointOntoPathMeters(currPos, path);
@@ -4092,11 +4202,15 @@ function markWaypointArrivalIfNeeded(currPos, path) {
     for (const w of waypointIndexMap) {
         if (!w || visitedWaypoints.has(w.name)) continue;
         if (typeof w.index !== 'number') continue;
-        // 只考虑当前投影之后的小段
+
+        // 新判定逻辑：索引误差 ≤ 3 + 距离 ≤ 3米，两个条件都满足才算到达
+        const currIdx = Math.round(proj.index);
+        const indexDiff = Math.abs(currIdx - w.index);
         const d = computeDistanceToIndexMeters(currPos, path, w.index) || Infinity;
-        if (isFinite(d) && d <= arriveThresh) {
+
+        if (indexDiff <= indexErrorMargin && isFinite(d) && d <= arriveDistThresh) {
             visitedWaypoints.add(w.name);
-            console.log('到达途径点:', w.name);
+            console.log('到达途径点:', w.name, '(索引差:', indexDiff, '米数差:', d.toFixed(2), '米)');
 
             // 到达途径点，切换到下一个目标
             switchToNextTarget();
@@ -4129,7 +4243,10 @@ function stopRealNavigationTracking() {
         gpsWatchId = null;
     }
     lastGpsPos = null;
+    lastRenderPosNav = null;
+    lastProjectionNav = null;  // 重置上次投影信息
     if (userMarker && navigationMap) { navigationMap.remove(userMarker); userMarker = null; }
+    if (headingLabel && navigationMap) { navigationMap.remove(headingLabel); headingLabel = null; }
     if (accuracyCircle && navigationMap) { navigationMap.remove(accuracyCircle); accuracyCircle = null; }
     if (passedRoutePolyline && navigationMap) { navigationMap.remove(passedRoutePolyline); passedRoutePolyline = null; }
     if (deviatedRoutePolyline && navigationMap) { navigationMap.remove(deviatedRoutePolyline); deviatedRoutePolyline = null; }
@@ -4529,6 +4646,49 @@ function projectPointOntoPathMeters(point, path) {
     return best;
 }
 
+// ====== 改进版：带方向性约束的投影函数（避免平行线吸附错误） ======
+// 该函数在吸附时，限制搜索范围在上次投影点附近，防止跳到平行的其他线路
+function projectPointOntoPathMetersWithDirectionality(point, path, lastProjection) {
+    if (!path || path.length < 2 || !point) return null;
+
+    const p = normalizeLngLat(point);
+    let best = null;
+
+    // 确定搜索范围：以上次投影点为中心，±N 个路径索引内搜索
+    // 这样可以防止用户偏离当前路段太远时才投影到其他平行线路
+    let searchStart = 0;
+    let searchEnd = path.length - 2;
+
+    if (lastProjection && typeof lastProjection.index === 'number') {
+        const searchWindow = 8;  // 搜索窗口大小：±8个路径索引
+        searchStart = Math.max(0, lastProjection.index - searchWindow);
+        searchEnd = Math.min(path.length - 2, lastProjection.index + searchWindow);
+    }
+
+    // 在限制范围内搜索最近的投影点
+    for (let i = searchStart; i <= searchEnd; i++) {
+        const a = normalizeLngLat(path[i]);
+        const b = normalizeLngLat(path[i + 1]);
+        const dx = (b[0] - a[0]);
+        const dy = (b[1] - a[1]);
+        const len2 = dx*dx + dy*dy;
+
+        let t = 0;
+        if (len2 > 0) {
+            t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+            t = Math.max(0, Math.min(1, t));
+        }
+        const proj = [a[0] + t * dx, a[1] + t * dy];
+        const dist = calculateDistanceBetweenPoints(p, proj);
+
+        if (!best || dist < best.distance) {
+            best = { index: i, t, projected: proj, distance: dist };
+        }
+    }
+
+    return best;
+}
+
 // 计算沿路网从投影点到终点的剩余距离（米）
 function computeRemainingRouteDistanceMeters(path, projection) {
     if (!path || path.length < 2 || !projection) return 0;
@@ -4719,7 +4879,12 @@ function startRealtimePositionTracking() {
     // 尝试启动设备方向监听
     tryStartDeviceOrientationNav();
 
-    const options = { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 };
+    // GPS 高精度定位配置：与导航中的配置保持一致
+    const options = {
+        enableHighAccuracy: true,  // 启用高精度模式
+        timeout: 5000,             // 超时时间：5秒（加快超时反应）
+        maximumAge: 0              // 缓存时间：0ms（每次都获取最新位置）
+    };
 
     preNavWatchId = navigator.geolocation.watchPosition(
         pos => {
