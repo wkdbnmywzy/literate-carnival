@@ -1045,9 +1045,7 @@ function drawKMLRoute(routeResult) {
             map: navigationMap
         });
         // 记录当前路线线宽
-    try { routeStrokeWeight = 16; } catch(e) {}
-    // 若导航标记已存在，调整其尺寸以匹配路线宽度
-    try { adjustUserMarkerToRouteWidth(); } catch (e) { console.warn('调整车辆图标尺寸失败:', e); }
+        try { routeStrokeWeight = 16; } catch(e) {}
 
         console.log('【路线绘制】Polyline 已添加到地图');
 
@@ -1126,8 +1124,6 @@ function drawStraightLine(start, end) {
     });
     // 记录当前路线线宽
     try { routeStrokeWeight = 8; } catch(e) {}
-    // 若导航标记已存在，调整其尺寸以匹配路线宽度
-    try { adjustUserMarkerToRouteWidth(); } catch (e) { console.warn('调整车辆图标尺寸失败:', e); }
 
     // 计算直线距离
     const distance = AMap.GeometryUtil.distance(start, end);
@@ -1156,26 +1152,6 @@ function drawStraightLine(start, end) {
 
     // 调整地图视野
     adjustMapView(start, end);
-}
-
-// 将车辆图标尺寸调整为与绿色路网同宽
-function adjustUserMarkerToRouteWidth() {
-    if (!userMarker) return;
-    const width = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : null;
-    if (!width) return;
-    const iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
-    try {
-        const icon = new AMap.Icon({
-            size: new AMap.Size(width, width),
-            image: iconImage,
-            imageSize: new AMap.Size(width, width),
-            imageOffset: new AMap.Pixel(0, 0)
-        });
-        userMarker.setIcon(icon);
-        userMarker.setOffset(new AMap.Pixel(-(width/2), -(width/2)));
-    } catch (e) {
-        console.warn('adjustUserMarkerToRouteWidth失败:', e);
-    }
 }
 
 // 开启导航路线的方向箭头（白色，与路线同宽的视觉效果）
@@ -1870,8 +1846,6 @@ let nextTurnIndex = -1; // 下一个转向点的索引
 let turnSequence = [];
 let turnSeqPtr = 0; // 指向未通过的下一个转向在 turnSequence 中的下标
 let hasReachedStart = false; // 是否已到达起点附近并正式开始沿路网导航
-// 【新增】到达起点后锁定车头方向与路网方向保持一致，不再随设备旋转
-let lockHeadingToRoute = true;
 // 通过一个转向后，为避免紧邻路口连跳，短暂抑制下一条指示（时间门槛）
 let postTurnGateUntilTime = 0;
 
@@ -3559,53 +3533,33 @@ function startSimulatedNavigation() {
         userMarker = null;
     }
 
-    // 导航开始后，将“我的位置”图标替换为 管理/2X/临时车.png，按2倍尺寸显示
-    // 若需要回退，请在下方 try/catch 的回退逻辑中恢复为原始箭头配置
+    // 使用与首页相同的带方向箭头图标
     const iconCfg = MapConfig.markerStyles.headingLocation || {};
-    const baseW = (iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-    const baseH = (iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
-    // 与绿色路网同宽：使用当前路线的strokeWeight作为图标宽度；若未知则回退为2倍基准
-    let w = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : (baseW * 2);
-    let h = w; // 统一为方形，确保与线路“宽度”一致的视觉效果
+    let w = (iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
+    let h = (iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
 
-    // 指定临时车图标路径（相对站点根目录）
-    let iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
-    try {
-        const myIcon = new AMap.Icon({
-            size: new AMap.Size(w, h),
-            image: iconImage,
-            imageSize: new AMap.Size(w, h),
-            imageOffset: new AMap.Pixel(0, 0)
-        });
-        userMarker = new AMap.Marker({
-            position: path[0],
-            icon: myIcon,
-            offset: new AMap.Pixel(-(w/2), -(h/2)),
-            zIndex: 120,
-            angle: 0,
-            map: navigationMap
-        });
-    } catch (e) {
-        // 回退：若图标加载失败则使用原有箭头方案
-        let fallbackImg = iconCfg.icon;
-        if (iconCfg.useSvgArrow === true || !fallbackImg) {
-            fallbackImg = createHeadingArrowDataUrl('#007bff');
-        }
-        const fbIcon = new AMap.Icon({
-            size: new AMap.Size(baseW, baseH),
-            image: fallbackImg,
-            imageSize: new AMap.Size(baseW, baseH),
-            imageOffset: new AMap.Pixel(0, 0)
-        });
-        userMarker = new AMap.Marker({
-            position: path[0],
-            icon: fbIcon,
-            offset: new AMap.Pixel(-(baseW/2), -(baseH/2)),
-            zIndex: 120,
-            angle: 0,
-            map: navigationMap
-        });
+    // 保持原图比例，不强制转换为正方形
+
+    let iconImage = iconCfg.icon;
+    // 如果开启箭头模式或 PNG 未配置，则改用 SVG 箭头，以确保旋转效果明显
+    if (iconCfg.useSvgArrow === true || !iconImage) {
+        iconImage = createHeadingArrowDataUrl('#007bff');
     }
+
+    const myIcon = new AMap.Icon({
+        size: new AMap.Size(w, h),
+        image: iconImage,
+        imageSize: new AMap.Size(w, h),
+        imageOffset: new AMap.Pixel(0, 0)  // 确保图像不偏移
+    });
+    userMarker = new AMap.Marker({
+        position: path[0],
+        icon: myIcon,
+        offset: new AMap.Pixel(-(w/2), -(h/2)),
+        zIndex: 120,
+        angle: 0,
+        map: navigationMap
+    });
 
     // 模拟行进参数
     const intervalMs = 300; // 刷新频率
@@ -4125,53 +4079,36 @@ function startRealNavigationTracking() {
 
             // 初始化标记与灰色路径
             if (!userMarker) {
-                // 导航开始后，将“我的位置”图标替换为 管理/2X/临时车.png，按2倍尺寸显示
+                // 使用与首页相同的配置
                 const iconCfg = MapConfig.markerStyles.headingLocation;
-                const baseW = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-                const baseH = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
-                // 与绿色路网同宽：优先使用routeStrokeWeight
-                let w = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : (baseW * 2);
-                let h = w; // 方形，确保视觉宽度一致
+                let w = (iconCfg && iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
+                let h = (iconCfg && iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
 
-                let iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
-                try {
-                    console.log('导航中创建我的位置标记(临时车图标), 尺寸:', w, 'x', h);
-                    const myIcon = new AMap.Icon({
-                        size: new AMap.Size(w, h),
-                        image: iconImage,
-                        imageSize: new AMap.Size(w, h),
-                        imageOffset: new AMap.Pixel(0, 0)
-                    });
+                // 保持原图比例，不强制转换为正方形
 
-                    userMarker = new AMap.Marker({
-                        position: curr,
-                        icon: myIcon,
-                        offset: new AMap.Pixel(-(w/2), -(h/2)),
-                        zIndex: 120,
-                        angle: 0,
-                        map: navigationMap
-                    });
-                } catch (e) {
-                    // 回退：使用原有箭头方案
-                    let fallbackImg = iconCfg && iconCfg.icon ? iconCfg.icon : null;
-                    if (!fallbackImg || (iconCfg && iconCfg.useSvgArrow === true)) {
-                        fallbackImg = createHeadingArrowDataUrl('#007bff');
-                    }
-                    const fbIcon = new AMap.Icon({
-                        size: new AMap.Size(baseW, baseH),
-                        image: fallbackImg,
-                        imageSize: new AMap.Size(baseW, baseH),
-                        imageOffset: new AMap.Pixel(0, 0)
-                    });
-                    userMarker = new AMap.Marker({
-                        position: curr,
-                        icon: fbIcon,
-                        offset: new AMap.Pixel(-(baseW/2), -(baseH/2)),
-                        zIndex: 120,
-                        angle: 0,
-                        map: navigationMap
-                    });
+                // 使用配置的图标或SVG箭头
+                let iconImage = iconCfg && iconCfg.icon ? iconCfg.icon : null;
+                if (!iconImage || iconCfg.useSvgArrow === true) {
+                    iconImage = createHeadingArrowDataUrl('#007bff');
                 }
+
+                console.log('导航中创建我的位置标记, 图标路径:', iconImage, '尺寸:', w, 'x', h);
+
+                const myIcon = new AMap.Icon({
+                    size: new AMap.Size(w, h),
+                    image: iconImage,
+                    imageSize: new AMap.Size(w, h),
+                    imageOffset: new AMap.Pixel(0, 0)  // 确保图像不偏移
+                });
+
+                userMarker = new AMap.Marker({
+                    position: curr,
+                    icon: myIcon,
+                    offset: new AMap.Pixel(-(w/2), -(h/2)),
+                    zIndex: 120,
+                    angle: 0,
+                    map: navigationMap
+                });
 
                 console.log('导航中我的位置标记创建成功');
             }
@@ -4213,20 +4150,23 @@ function startRealNavigationTracking() {
             } catch (e) { /* 吸附失败则退回原始位置 */ }
 
             // 计算朝向并旋转：
-            // 到达起点后并启用锁定时，强制使用路线方向；否则使用设备方向或移动向量
+            // 已到达起点后，优先使用路线前进方向；否则使用设备方向或移动向量
             let heading = null;
-            if (hasReachedStart && lockHeadingToRoute && fullPath && fullPath.length >= 2) {
+            if (hasReachedStart && onRoute && fullPath && fullPath.length >= 2) {
+                // 已到达起点且在路线上：使用路线前进方向
+                // 找到当前位置在路径上的投影点后的下一个路径点
                 const projection = projectPointOntoPathMeters(displayPos, fullPath);
                 if (projection && typeof projection.index === 'number') {
                     const nextIdx = Math.min(projection.index + 1, fullPath.length - 1);
                     const nextPoint = fullPath[nextIdx];
+                    // 计算从当前显示位置到下一路径点的方向作为箭头朝向
                     heading = calculateBearingBetweenPoints(displayPos, nextPoint);
-                    console.log('【锁定】使用路线前进方向作为朝向:', heading.toFixed(1), '度');
+                    console.log('使用路线前进方向作为朝向:', heading.toFixed(1), '度');
                 }
             }
 
-            // 回退：仅在未到起点或未锁定时，参考设备或移动方向
-            if (heading === null && (!lockHeadingToRoute || !hasReachedStart)) {
+            // 回退方案：未到起点或无法获取路线方向时，使用设备方向或移动向量
+            if (heading === null) {
                 if (typeof lastDeviceHeadingNav === 'number') {
                     heading = lastDeviceHeadingNav;
                 } else if (lastRenderPosNav) {
@@ -4240,9 +4180,10 @@ function startRealNavigationTracking() {
             // 使用"显示位置"进行自动校准与朝向应用
             if (heading !== null) {
                 try {
+                    // 为了与吸附后的位置一致，使用显示位置推进校准状态
                     if (lastRenderPosNav) { lastGpsPos = lastRenderPosNav; }
-                    // 锁定后不再进行自动校准（避免误判）
-                    if (!hasReachedStart || !lockHeadingToRoute) {
+                    // 注意：已到达起点后使用路线方向时，跳过自动校准（避免误判）
+                    if (!hasReachedStart || !onRoute) {
                         attemptAutoCalibrationNav(displayPos, heading);
                     }
                     navApplyHeadingToMarker(heading);
@@ -5255,8 +5196,9 @@ function tryStartDeviceOrientationNav() {
             // 保存最新朝向，供其他逻辑（例如 GPS 更新）使用
             lastDeviceHeadingNav = heading;
 
-            // 到达起点并锁定后，忽略设备方向对图标朝向的影响
-            if (userMarker && (!lockHeadingToRoute || !hasReachedStart)) {
+            // 如果"我的位置"标记已存在，则尝试设置其旋转角度
+            if (userMarker) {
+                // 统一封装：角度偏移与地图旋转在内部处理
                 try { navApplyHeadingToMarker(heading); } catch (err) {}
             }
 
@@ -5433,7 +5375,7 @@ function startRealtimePositionTracking() {
 
                 console.log('导航页创建我的位置标记, 图标路径:', iconImage, '尺寸:', w, 'x', h);
 
-                    const fbIcon = new AMap.Icon({
+                const myIcon = new AMap.Icon({
                     size: new AMap.Size(w, h),
                     image: iconImage,
                     imageSize: new AMap.Size(w, h),
@@ -5474,8 +5416,8 @@ function startRealtimePositionTracking() {
                 }
             }
 
-            // 应用朝向角度：统一封装并尝试自动校准（仅在未锁定或未到达起点时）
-            if (heading !== null && (!lockHeadingToRoute || !hasReachedStart)) {
+            // 应用朝向角度：统一封装并尝试自动校准
+            if (heading !== null) {
                 try {
                     attemptAutoCalibrationNav(curr, heading);
                     navApplyHeadingToMarker(heading);
