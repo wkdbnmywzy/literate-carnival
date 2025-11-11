@@ -408,13 +408,9 @@ function hideError(msgElement) {
 function initProjectSelection() {
     // 项目数据
     const projectsData = {
-        '河北省': ['石家庄项目', '唐山项目', '秦皇岛项目'],
-        '河南省': ['郑州项目', '洛阳项目', '开封项目'],
-        '湖北省': ['汉韵公馆', '戏曲中心'],
-        '湖南省': ['长沙项目', '岳阳项目', '常德项目'],
-        '新疆维吾尔自治区': ['乌鲁木齐项目', '喀什项目', '伊犁项目']
+        '江苏省': ['胥江一号项目', '苏州丰隆项目', '圆融国际广场项目', '汇川动力总部项目'],
+        '湖北省': ['汉韵公馆项目', '葛店试验场项目','测试项目']
     };
-
     let provincePicker = null;
     let projectPicker = null;
     let selectedProvince = null;
