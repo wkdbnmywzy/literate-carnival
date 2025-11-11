@@ -167,6 +167,7 @@ let maxPassedSegIndex = -1;        // 记录用户走过的最远路径点索引
 let passedSegments = new Set();    // 记录已走过的路段（格式："startIndex-endIndex"）
 let visitedWaypoints = new Set();  // 记录已到达的途径点名称
 let currentTargetPoint = null;     // 当前目标点：{ type: 'start'|'waypoint'|'end', name: string, position: [lng,lat], index?: number }
+let arrivalNotificationTimer = null; // 到达提示的定时器
 
 let currentBranchInfo = null;      // 当前检测到的分支信息
 let userChosenBranch = -1;         // 用户选择的分支索引（-1表示未选择或推荐分支）
@@ -3371,6 +3372,71 @@ function hideNavigationCompleteModal() {
     }
 }
 
+// 显示到达提示（在导航提示栏显示"已到达XX"，3秒后自动恢复）
+function showArrivalNotification(targetName, delayMs = 3000, isImmediateFinish = false) {
+    try {
+        // 清除之前的定时器（如果有）
+        if (arrivalNotificationTimer) {
+            clearTimeout(arrivalNotificationTimer);
+            arrivalNotificationTimer = null;
+        }
+
+        // 获取导航提示栏的元素
+        const tipMainText = document.querySelector('.tip-main-text');
+        const tipAction = document.getElementById('tip-action-text');
+        const tipDistanceAhead = document.getElementById('tip-distance-ahead');
+        const tipDistanceUnit = document.querySelector('.tip-distance-unit');
+
+        if (!tipMainText || !tipAction) return;
+
+        // 保存原来的内容
+        const originalActionText = tipAction.textContent;
+        const originalDistanceAhead = tipDistanceAhead ? tipDistanceAhead.textContent : '';
+        const originalDistanceUnit = tipDistanceUnit ? tipDistanceUnit.textContent : '';
+
+        // 改为显示"已到达XX"
+        tipAction.textContent = `已到达${targetName}`;
+        if (tipDistanceAhead) tipDistanceAhead.textContent = '';
+        if (tipDistanceUnit) tipDistanceUnit.textContent = '';
+
+        // 如果是到达终点且距离为0，立即显示完成弹窗（不等3秒）
+        if (isImmediateFinish) {
+            // 立即显示完成弹窗
+            setTimeout(() => {
+                // 估算总时间
+                let totalMinutes = 0;
+                if (navStartTime) {
+                    totalMinutes = Math.max(1, Math.ceil((Date.now() - navStartTime) / 60000));
+                } else {
+                    const hours = (totalRouteDistance || 0) / VEHICLE_SPEED;
+                    totalMinutes = Math.ceil(hours * 60);
+                }
+                showNavigationCompleteModal(totalRouteDistance || 0, totalMinutes);
+                try { speakNavigation('到达目的地，导航结束。'); } catch (e) {}
+            }, 100);
+            arrivalNotificationTimer = null;
+            console.log('显示到达提示:', `已到达${targetName}，距离0米，立即显示完成卡片`);
+            return;
+        }
+
+        // 正常情况：delayMs毫秒后恢复并更新下一段路线
+        arrivalNotificationTimer = setTimeout(() => {
+            // 恢复原来的显示（或更新到下一段）
+            tipAction.textContent = originalActionText;
+            if (tipDistanceAhead) tipDistanceAhead.textContent = originalDistanceAhead;
+            if (tipDistanceUnit) tipDistanceUnit.textContent = originalDistanceUnit;
+
+            // 刷新导航提示以显示下一段路线信息
+            updateNavigationTip();
+            arrivalNotificationTimer = null;
+        }, delayMs);
+
+        console.log('显示到达提示:', `已到达${targetName}，${delayMs}ms后更新下一段`);
+    } catch (e) {
+        console.warn('显示到达提示失败:', e);
+    }
+}
+
 // 检测导航是否完成（用于模拟到达目的地）
 function checkNavigationComplete() {
     if (!isNavigating || !routeData || !routePolyline) {
@@ -3402,9 +3468,12 @@ window.addEventListener('beforeunload', function() {
     cleanupMap();
 });
 
-// ====== 模拟导航：移动“我的位置”并绘制灰色已走路径 ======
+// ====== 模拟导航：移动"我的位置"并绘制灰色已走路径 ======
 function startSimulatedNavigation() {
     if (!navigationMap || !routePolyline) return;
+
+    // 【新增】清空已访问的途径点记录（开始新的导航）
+    visitedWaypoints.clear();
 
     // 记录总距离与开始时间
     try {
@@ -3726,6 +3795,9 @@ function startRealNavigationTracking() {
         }
         return;
     }
+
+    // 【新增】清空已访问的途径点记录（开始新的导航）
+    visitedWaypoints.clear();
 
     // 清理之前的标记（确保重新开始）
     if (userMarker && navigationMap) {
@@ -4187,24 +4259,31 @@ function startRealNavigationTracking() {
                 updateNavigationTip();
             }
 
-            // 到终点判定：索引误差 ≤ 3 + 距离 ≤ 3米，两个条件都满足才算到达
+            // 到终点判定：改进的判定逻辑
             const end = fullPath[fullPath.length - 1];
             const distToEnd = calculateDistanceBetweenPoints(lastRenderPosNav || curr, end);
             const proj = projectPointOntoPathMeters(lastRenderPosNav || curr, fullPath);
             const remainRouteDist = proj ? computeRemainingRouteDistanceMeters(fullPath, proj) : distToEnd;
 
-            // 新判定逻辑：终点在路径最后，检查索引和距离
-            const endIndex = fullPath.length - 1;
-            const currIdx = proj ? Math.round(proj.index) : -1;
-            const indexDiff = Math.abs(currIdx - endIndex);
-            const indexErrorMargin = 3;  // 索引误差范围：±3个点
-            const arriveDistThresh = 3;  // 距离阈值：3米
+            // 【改进】使用更宽松的到达判定：
+            // 原逻辑：同时满足索引误差 ≤ 3 + 距离 ≤ 3米
+            // 新逻辑：满足以下任意条件即可：
+            // 1) 距离 ≤ endArrivalThresholdMeters（默认12米）且已到达起点
+            // 2) 或剩余路网距离 ≤ 12米
+            let arriveDistThresh = endArrivalThresholdMeters || 12;
+            try {
+                if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.endArrivalDistanceMeters === 'number') {
+                    arriveDistThresh = MapConfig.navigationConfig.endArrivalDistanceMeters;
+                }
+            } catch (e) {}
 
-            const indexValid = indexDiff <= indexErrorMargin;
             const distValid = distToEnd <= arriveDistThresh;
+            const remainDistValid = isFinite(remainRouteDist) && remainRouteDist <= arriveDistThresh;
+            // 【新增】检查距离是否为0米（显示在提示栏上）
+            const distIsZero = Math.round(distToEnd) === 0 || Math.round(remainRouteDist) === 0;
 
-            if (hasReachedStart && onRoute && indexValid && distValid) {
-                console.log('到达终点 (索引差:', indexDiff, '米数差:', distToEnd.toFixed(2), '米)');
+            if (hasReachedStart && (distValid || remainDistValid || distIsZero)) {
+                console.log('到达终点 (直线距离:', distToEnd.toFixed(2), '米, 剩余路网距离:', remainRouteDist.toFixed(2), '米)');
                 finishNavigation();
                 // 到达后停止持续定位
                 stopRealNavigationTracking();
@@ -4340,16 +4419,29 @@ function markWaypointArrivalIfNeeded(currPos, path) {
             visitedWaypoints.add(w.name);
             console.log('【途径点检测】✓ 到达途径点:', w.name, '(距离:', d.toFixed(2), '米)');
 
-            // 到达途径点，切换到下一个目标
-            switchToNextTarget();
-            updateDestinationInfo();
+            // 【新增】显示到达提示（3秒后自动更新下一段）
+            showArrivalNotification(w.name, 3000);
 
-            // 【改进】触发语音提示
-            try {
-                speakNavigation(`已到达${w.name}`);
-            } catch (e) {
-                console.warn('语音提示失败:', e);
-            }
+            // 到达途径点，切换到下一个目标
+            // 【延迟处理】等待提示显示3秒后再切换下一段路线
+            setTimeout(() => {
+                switchToNextTarget();
+                updateDestinationInfo();
+
+                // 【改进】触发语音提示
+                try {
+                    speakNavigation(`已到达${w.name}`);
+                } catch (e) {
+                    console.warn('语音提示失败:', e);
+                }
+
+                // 【新增】到达途径点后，立即刷新路线显示（更新到下一段）
+                try {
+                    updatePathSegments(currPos, path, proj.index, proj.projected);
+                } catch (e) {
+                    console.warn('更新路线显示失败:', e);
+                }
+            }, 3000); // 延迟3秒以匹配提示显示时间
         }
     }
 }
@@ -4669,34 +4761,55 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         }
     }
 
-    // 构建剩余路径（绿色）- 【改进】始终显示到最终终点，不受当前目标点限制
+    // 构建剩余路径（绿色）- 【改进】仅显示到下一个未到达的目标点
     let remainingPath = [];
 
-    // 【改进】始终使用最终终点作为绿线的终点
-    // 这样用户可以看到完整的路线，了解整个导航任务
-    const endIndex = fullPath.length - 1; // 永远显示到最终终点
-    console.log('【完整路线】绿线将显示完整路线，从当前位置到最终终点，索引:', endIndex);
+    // 【改进】分段显示路线：只显示到当前目标点（下一个途径点或终点）
+    // 到达后，自动切换到下一个目标点
+    let legEndIndex = fullPath.length - 1; // 默认为最终终点
+
+    try {
+        // 计算当前"分段"的终点（下一个未到达的途径点，或最终终点）
+        if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0) {
+            const projLeg = projectPointOntoPathMeters(currentPos, fullPath);
+            const currIdxLeg = (projLeg && typeof projLeg.index === 'number') ? projLeg.index : 0;
+
+            // 找到第一个在当前位置之后、且未被访问的途径点
+            for (const w of waypointIndexMap) {
+                if (!w || visitedWaypoints.has(w.name)) continue;
+                if (typeof w.index !== 'number') continue;
+                if (w.index > currIdxLeg) {
+                    legEndIndex = w.index;
+                    break;
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('计算分段终点失败，使用最终终点:', e);
+    }
+
+    console.log('【分段显示】当前目标索引:', legEndIndex, '（从', routeSegIndex, '开始）');
 
     if (onRoute) {
-        // 剩余路径 = [投影点] + [该段终点...endIndex的所有节点]
-        const sliceEnd = Math.min(endIndex + 1, fullPath.length);
+        // 剩余路径 = [投影点] + [该段终点...legEndIndex的所有节点]
+        const sliceEnd = Math.min(legEndIndex + 1, fullPath.length);
         remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1), sliceEnd));
         if (remainingPath.length < 2) {
-            remainingPath = [routePoint, fullPath[endIndex]];
+            remainingPath = [routePoint, fullPath[legEndIndex]];
         }
     } else {
-        // 偏离路径时：从投影点画到endIndex
+        // 偏离路径时：从投影点画到legEndIndex
         if (routePoint) {
-            const sliceEnd = Math.min(endIndex + 1, fullPath.length);
+            const sliceEnd = Math.min(legEndIndex + 1, fullPath.length);
             remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1), sliceEnd));
         } else {
             // 若无投影点退化为从最近索引处开始
             const startIdx = Math.max(0, Math.min(fullPath.length - 1, segIndex));
-            const sliceEnd = Math.min(endIndex + 1, fullPath.length);
+            const sliceEnd = Math.min(legEndIndex + 1, fullPath.length);
             remainingPath = [fullPath[startIdx]].concat(fullPath.slice(startIdx + 1, sliceEnd));
         }
         if (remainingPath.length < 2 && fullPath.length >= 2) {
-            remainingPath = [fullPath[0], fullPath[endIndex]];
+            remainingPath = [fullPath[0], fullPath[legEndIndex]];
         }
     }
 
@@ -4858,20 +4971,14 @@ function interpolateLngLat(a, b, t) {
 
 // 完成导航：统计并弹窗
 function finishNavigation() {
-    stopSimulatedNavigation();
+    // 根据导航模式停止相应的追踪
+    try { stopSimulatedNavigation(); } catch (e) {}
+    try { stopRealNavigationTracking(); } catch (e) {}
+
     isNavigating = false;
 
-    // 估算总时间（若有开始时间则按实际流逝；否则按速度估算）
-    let totalMinutes;
-    if (navStartTime) {
-        totalMinutes = Math.max(1, Math.ceil((Date.now() - navStartTime) / 60000));
-    } else {
-        const hours = (totalRouteDistance || 0) / VEHICLE_SPEED;
-        totalMinutes = Math.ceil(hours * 60);
-    }
-
-    showNavigationCompleteModal(totalRouteDistance || 0, totalMinutes);
-    try { speakNavigation('到达目的地，导航结束。'); } catch (e) {}
+    // 【新增】显示到达终点提示，并立即显示完成卡片
+    showArrivalNotification('终点', 3000, true);
 }
 
 function tryStartDeviceOrientationNav() {
