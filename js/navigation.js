@@ -3529,10 +3529,17 @@ function startSimulatedNavigation() {
         userMarker = null;
     }
 
-    // 开始导航后，将“我的位置”图标改为 管理/2X/运输管理/临时车.png，并将尺寸设置为绿色路网的线宽
+    // 开始导航后，将“我的位置”图标改为 管理/2X/运输管理/临时车.png，并将尺寸设置为略大于绿色路网的线宽
     // 计算线宽：优先使用全局记录的 routeStrokeWeight；若无则退回 16
-    let w = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16;
-    let h = w; // 统一使用线宽的正方形尺寸，满足“设置成绿色路网的宽度”的要求
+    // 大于路网宽度（默认 +6px，可通过 MapConfig.navigationConfig.vehicleIconExtraPixels 覆盖）
+    let extraPxForCover = 6;
+    try {
+        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.vehicleIconExtraPixels === 'number') {
+            extraPxForCover = MapConfig.navigationConfig.vehicleIconExtraPixels;
+        }
+    } catch (e) {}
+    let w = ((typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16) + extraPxForCover;
+    let h = w; // 统一使用正方形尺寸
     // 指定临时车图标路径
     let iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
 
@@ -4069,9 +4076,16 @@ function startRealNavigationTracking() {
 
             // 初始化标记与灰色路径
             if (!userMarker) {
-                // 开始导航后，将“我的位置”图标改为 管理/2X/运输管理/临时车.png，并将尺寸设置为绿色路网的线宽
-                let w = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16;
-                let h = w; // 满足“设置成绿色路网的宽度”，高度取同值，其他不改
+                // 开始导航后，将“我的位置”图标改为 管理/2X/运输管理/临时车.png，并将尺寸设置为略大于绿色路网的线宽
+                // 大于路网宽度（默认 +6px，可配置覆盖）
+                let extraPxForCover = 6;
+                try {
+                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.vehicleIconExtraPixels === 'number') {
+                        extraPxForCover = MapConfig.navigationConfig.vehicleIconExtraPixels;
+                    }
+                } catch (e) {}
+                let w = ((typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16) + extraPxForCover;
+                let h = w; // 高度取同值
                 const iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
 
                 console.log('导航中创建我的位置标记, 图标路径:', iconImage, '尺寸:', w, 'x', h);
