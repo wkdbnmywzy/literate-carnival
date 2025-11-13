@@ -4132,22 +4132,29 @@ function startRealNavigationTracking() {
             } catch (e) { /* 吸附失败则退回原始位置 */ }
 
             // 计算朝向并旋转：
-            // 已到达起点后，优先使用路线前进方向；否则使用设备方向或移动向量
+            // 只要在路网上（onRoute），优先使用路线前进方向；否则回退设备朝向或移动向量
             let heading = null;
-            if (hasReachedStart && onRoute && fullPath && fullPath.length >= 2) {
-                // 已到达起点且在路线上：使用路线前进方向
-                // 找到当前位置在路径上的投影点后的下一个路径点
-                const projection = projectPointOntoPathMeters(displayPos, fullPath);
-                if (projection && typeof projection.index === 'number') {
-                    const nextIdx = Math.min(projection.index + 1, fullPath.length - 1);
-                    const nextPoint = fullPath[nextIdx];
-                    // 计算从当前显示位置到下一路径点的方向作为箭头朝向
+            if (onRoute && fullPath && fullPath.length >= 2) {
+                // 在路网上：使用规划路径的前进方向（路径切线）
+                // 优先根据投影索引获取下一点；若投影不可用，退回 segIndex
+                let nextIdx = -1;
+                try {
+                    const proj = projectPointOntoPathMeters(displayPos, fullPath);
+                    if (proj && typeof proj.index === 'number') {
+                        nextIdx = Math.min(proj.index + 1, fullPath.length - 1);
+                    }
+                } catch (e) {}
+                if (nextIdx < 0) {
+                    nextIdx = Math.min(Math.max(segIndex, 0) + 1, fullPath.length - 1);
+                }
+                const nextPoint = fullPath[nextIdx];
+                if (nextPoint) {
                     heading = calculateBearingBetweenPoints(displayPos, nextPoint);
                     console.log('使用路线前进方向作为朝向:', heading.toFixed(1), '度');
                 }
             }
 
-            // 回退方案：未到起点或无法获取路线方向时，使用设备方向或移动向量
+            // 回退方案：不在路网或无法获取路径方向时，使用设备方向或移动向量
             if (heading === null) {
                 if (typeof lastDeviceHeadingNav === 'number') {
                     heading = lastDeviceHeadingNav;
@@ -5180,8 +5187,8 @@ function tryStartDeviceOrientationNav() {
 
             // 如果"我的位置"标记已存在，则尝试设置其旋转角度
             if (userMarker) {
-                // 导航开始后，不再使用设备方向更新车图标朝向，保持路线前进方向
-                if (!(isNavigating && hasReachedStart)) {
+                // 导航开始后，若在路网上（!isOffRoute），不使用设备方向覆盖，保持路线前进方向
+                if (!(isNavigating && (!isOffRoute || hasReachedStart))) {
                     // 统一封装：角度偏移与地图旋转在内部处理
                     try { navApplyHeadingToMarker(heading); } catch (err) {}
                 }
