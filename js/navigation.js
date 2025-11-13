@@ -543,22 +543,19 @@ function displayKMLFeaturesForNavigation(features, fileName) {
     });
 
     // 2. 再处理线（zIndex: 20）
-    // 导航界面的KML线要素默认不显示，与开始导航后保持一致
+    // 导航页显示全部路网，统一样式：1px，#9AE59D
     lines.forEach(feature => {
         if (feature.geometry?.coordinates && feature.geometry.coordinates.length >= 2) {
-            const lineStyle = feature.geometry.style || {
-                color: '#888888',
-                opacity: 0.5,
-                width: 2
-            };
+            const strokeColor = '#9AE59D';
+            const strokeWeight = 1;
 
             const marker = new AMap.Polyline({
                 path: feature.geometry.coordinates,
-                strokeColor: lineStyle.color,
-                strokeWeight: lineStyle.width,
-                strokeOpacity: lineStyle.opacity || 0.5,
-                zIndex: 20
-                // 不添加 map 参数，默认不显示
+                strokeColor: strokeColor,
+                strokeWeight: strokeWeight,
+                strokeOpacity: 1,
+                zIndex: 20,
+                map: navigationMap
             });
 
             marker.setExtData({
@@ -633,7 +630,7 @@ function displayKMLFeaturesForNavigation(features, fileName) {
 
     kmlLayers.push(layerEntry);
 
-    console.log('KML数据加载并显示完成（不显示点），图层数:', kmlLayers.length);
+    console.log('KML数据加载并显示完成（导航页显示线与面），图层数:', kmlLayers.length);
 }
 
 // 加载路线数据
@@ -1873,8 +1870,7 @@ function startNavigationUI() {
     // 停止导航前的实时位置追踪
     stopRealtimePositionTracking();
 
-    // 隐藏KML线要素，保留面和规划路径
-    hideKMLLines();
+    // 不再隐藏KML线要素，保留路网作为背景
 
     // 显示导航提示卡片
     showTipCard();
