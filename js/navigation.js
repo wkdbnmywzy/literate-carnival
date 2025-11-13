@@ -4359,12 +4359,16 @@ function startRealNavigationTracking() {
                 // 防抖：仅前进不后退
                 currentNavigationIndex = Math.max(0, Math.max(currentNavigationIndex || 0, progressIndex));
 
-                // 若接近当前转向点（沿路网距离小于阈值），立即视为通过
+                // 若“实际投影索引”已越过当前转向点（进入拐点后的出段），才视为通过
                 try {
-                    let passTurnThreshold = 8; // 默认8米
-                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.turnPassDistanceMeters === 'number') {
-                        passTurnThreshold = MapConfig.navigationConfig.turnPassDistanceMeters;
-                    }
+                    // 首选：基于投影索引推进（严格，不会提前切到下一路段）
+                    // 仅当无法获取投影时，才退回到“距离阈值”的保守策略
+                    let passTurnThreshold = 8; // 距离退回阈值（仅用于fallback）
+                    try {
+                        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.turnPassDistanceMeters === 'number') {
+                            passTurnThreshold = MapConfig.navigationConfig.turnPassDistanceMeters;
+                        }
+                    } catch (e) {}
                     // 使用预计算序列推进
                     let advanced = false;
                     if (!isOffRoute && turnSequence && turnSequence.length > 0 && turnSeqPtr < turnSequence.length) {
@@ -4384,31 +4388,52 @@ function startRealNavigationTracking() {
 
                         const targetIdx = turnSequence[turnSeqPtr].index;
                         if (typeof targetIdx === 'number' && targetIdx <= legEndIndex) {
-                            const distToTurn = computeDistanceToIndexMeters(lastRenderPosNav || curr, fullPath, targetIdx) || 0;
-                            if (isFinite(distToTurn) && distToTurn <= passTurnThreshold) {
-                            // 通过当前转向，推进到下一个
-                            turnSeqPtr = Math.min(turnSeqPtr + 1, turnSequence.length);
-                            if (turnSeqPtr < turnSequence.length) {
-                                nextTurnIndex = turnSequence[turnSeqPtr].index;
-                            } else {
-                                nextTurnIndex = fullPath.length - 1;
-                            }
-                            // 设置“转向后抑制窗口”，避免紧邻路口连续弹提示
-                            try {
-                                let gateMs = 1500; // 默认1.5秒
-                                if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.postTurnNextPromptMinTimeMs === 'number') {
-                                    gateMs = MapConfig.navigationConfig.postTurnNextPromptMinTimeMs;
+                            // 基于当前位置在路网上的投影来判断是否“通过拐点”
+                            const proj = projForProgress || projectPointOntoPathMeters(lastRenderPosNav || curr, fullPath);
+                            const projIdx = proj && typeof proj.index === 'number' ? proj.index : null;
+                            const projT = proj && typeof proj.t === 'number' ? proj.t : null;
+
+                            let passed = false;
+                            if (projIdx !== null) {
+                                // 严格规则：进入拐点后的出段(索引>=targetIdx)即视为通过，避免提前
+                                if (projIdx > targetIdx) passed = true;
+                                else if (projIdx === targetIdx) {
+                                    // 已进入出段，允许轻微进入即通过；如需更“稳”，可要求 projT>=0.05/0.1
+                                    passed = true;
                                 }
-                                postTurnGateUntilTime = Date.now() + Math.max(0, gateMs);
-                            } catch (e) { postTurnGateUntilTime = Date.now() + 1500; }
-                            advanced = true;
+                            } else {
+                                // 回退：无法获取投影时，才使用距离阈值判断，阈值较小避免提前
+                                const distToTurn = computeDistanceToIndexMeters(lastRenderPosNav || curr, fullPath, targetIdx) || 0;
+                                if (isFinite(distToTurn) && distToTurn <= Math.max(2, Math.min(6, passTurnThreshold))) {
+                                    passed = true;
+                                }
+                            }
+
+                            if (passed) {
+                                // 通过当前转向，推进到下一个
+                                turnSeqPtr = Math.min(turnSeqPtr + 1, turnSequence.length);
+                                if (turnSeqPtr < turnSequence.length) {
+                                    nextTurnIndex = turnSequence[turnSeqPtr].index;
+                                } else {
+                                    nextTurnIndex = fullPath.length - 1;
+                                }
+                                // 设置“转向后抑制窗口”，避免紧邻路口连续弹提示
+                                try {
+                                    let gateMs = 1500; // 默认1.5秒
+                                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.postTurnNextPromptMinTimeMs === 'number') {
+                                        gateMs = MapConfig.navigationConfig.postTurnNextPromptMinTimeMs;
+                                    }
+                                    postTurnGateUntilTime = Date.now() + Math.max(0, gateMs);
+                                } catch (e) { postTurnGateUntilTime = Date.now() + 1500; }
+                                advanced = true;
                             }
                         }
                     }
-                    // 兼容：若未启用序列或未推进，依旧使用 nextTurnIndex 距离判断
+                    // 兼容：若未启用序列或未推进，使用“投影索引”判断是否越过 nextTurnIndex
                     if (!advanced && !isOffRoute && typeof nextTurnIndex === 'number' && nextTurnIndex > 0 && nextTurnIndex < fullPath.length) {
-                        const distToTurn = computeDistanceToIndexMeters(lastRenderPosNav || curr, fullPath, nextTurnIndex) || 0;
-                        if (isFinite(distToTurn) && distToTurn <= passTurnThreshold) {
+                        const proj = projForProgress || projectPointOntoPathMeters(lastRenderPosNav || curr, fullPath);
+                        const projIdx = proj && typeof proj.index === 'number' ? proj.index : null;
+                        if (projIdx !== null && projIdx >= nextTurnIndex) {
                             currentNavigationIndex = Math.max(currentNavigationIndex, nextTurnIndex);
                         }
                     }
