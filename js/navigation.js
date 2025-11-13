@@ -4136,19 +4136,22 @@ function startRealNavigationTracking() {
             } catch (e) { /* 吸附失败则退回原始位置 */ }
 
             // 计算朝向并旋转：
-            // 需求：到达起点后，车辆图标指向与路网方向一致（路径切线方向），忽略设备自身朝向
+            // 已到达起点后，优先使用路线前进方向；否则使用设备方向或移动向量
             let heading = null;
-            if (hasReachedStart && fullPath && fullPath.length >= 2) {
+            if (hasReachedStart && onRoute && fullPath && fullPath.length >= 2) {
+                // 已到达起点且在路线上：使用路线前进方向
+                // 找到当前位置在路径上的投影点后的下一个路径点
                 const projection = projectPointOntoPathMeters(displayPos, fullPath);
                 if (projection && typeof projection.index === 'number') {
                     const nextIdx = Math.min(projection.index + 1, fullPath.length - 1);
                     const nextPoint = fullPath[nextIdx];
+                    // 计算从当前显示位置到下一路径点的方向作为箭头朝向
                     heading = calculateBearingBetweenPoints(displayPos, nextPoint);
-                    console.log('使用路线切线方向作为朝向(与路网平行):', heading.toFixed(1), '度');
+                    console.log('使用路线前进方向作为朝向:', heading.toFixed(1), '度');
                 }
             }
 
-            // 回退：未到起点或无法获取路径切线时，使用设备方向或移动向量
+            // 回退方案：未到起点或无法获取路线方向时，使用设备方向或移动向量
             if (heading === null) {
                 if (typeof lastDeviceHeadingNav === 'number') {
                     heading = lastDeviceHeadingNav;
@@ -4165,8 +4168,8 @@ function startRealNavigationTracking() {
                 try {
                     // 为了与吸附后的位置一致，使用显示位置推进校准状态
                     if (lastRenderPosNav) { lastGpsPos = lastRenderPosNav; }
-                    // 已到达起点后使用路线切线方向时跳过自动校准（避免被判定为反向移动）
-                    if (!hasReachedStart) {
+                    // 注意：已到达起点后使用路线方向时，跳过自动校准（避免误判）
+                    if (!hasReachedStart || !onRoute) {
                         attemptAutoCalibrationNav(displayPos, heading);
                     }
                     navApplyHeadingToMarker(heading);
