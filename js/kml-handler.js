@@ -783,7 +783,7 @@ function displayKMLFeatures(features, fileName) {
     });
 
     // 2. 再显示线（zIndex: 50）
-    // 首页加载时不显示线要素，只在导航页显示
+    // 首页不显示路网线要素（仅在导航页显示）
     lines.forEach(feature => {
         const featureCoordinates = feature.geometry.coordinates;
 
@@ -801,17 +801,12 @@ function displayKMLFeatures(features, fileName) {
 
         allCoordinates.push(...featureCoordinates);
 
-        const lineStyle = feature.geometry.style || {
-            color: MapConfig.routeStyles.polyline.strokeColor,
-            width: MapConfig.routeStyles.polyline.strokeWeight
-        };
-
-        // 创建线要素但不添加到地图上（map参数不设置）
+        // 创建线要素但不添加到地图上（首页隐藏路网）
         const marker = new AMap.Polyline({
             path: validCoords,
-            strokeColor: lineStyle.color,
-            strokeWeight: lineStyle.width,
-            strokeOpacity: lineStyle.opacity || 1,
+            strokeColor: (feature.geometry.style && feature.geometry.style.color) || MapConfig.routeStyles.polyline.strokeColor,
+            strokeWeight: (feature.geometry.style && feature.geometry.style.width) || MapConfig.routeStyles.polyline.strokeWeight,
+            strokeOpacity: (feature.geometry.style && feature.geometry.style.opacity) || 1,
             zIndex: 50
             // 不添加 map: map，这样线要素不会显示在首页地图上
         });
