@@ -195,6 +195,226 @@ try {
     }
 } catch (e) { /* 忽略配置读取错误，使用默认值 */ }
 
+// ====== 新增：分段静态绘制 + 索引吸附 + 偏航黄线（一次性绿色，灰色覆盖） ======
+let segNavEnabled = true; // 开关：启用新的分段显示/吸附逻辑
+let segController = null; // 分段控制器实例
+
+// 分段控制器实现（AMap专用的轻量实现）
+function createSegmentNavigator(fullPath, waypointIndexMapSorted) {
+    // 构造分段：按起点→途经点(们)→终点切段
+    const indices = [0];
+    if (Array.isArray(waypointIndexMapSorted) && waypointIndexMapSorted.length > 0) {
+        waypointIndexMapSorted.forEach(w => {
+            if (w && typeof w.index === 'number') {
+                indices.push(Math.max(0, Math.min(fullPath.length - 1, w.index)));
+            }
+        });
+    }
+    if (indices[indices.length - 1] !== fullPath.length - 1) {
+        indices.push(fullPath.length - 1);
+    }
+    // 去重且升序
+    const cutIdx = Array.from(new Set(indices)).sort((a, b) => a - b);
+    const segments = [];
+    for (let i = 0; i < cutIdx.length - 1; i++) {
+        const s = cutIdx[i];
+        const e = cutIdx[i + 1];
+        if (e > s) {
+            const points = fullPath.slice(s, e + 1);
+            // 查找该段末端是否对应某个途径点
+            let waypointName = null;
+            if (Array.isArray(waypointIndexMapSorted)) {
+                const found = waypointIndexMapSorted.find(w => w && w.index === e);
+                if (found) waypointName = found.name || null;
+            }
+            segments.push({ id: i, startIndex: s, endIndex: e, points, waypointName });
+        }
+    }
+
+    // 样式与层级
+    let greenWeight = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16;
+    const progressWeight = greenWeight + 2; // 灰色略宽以覆盖绿色
+    const z = { deviation: 400, progress: 300, green: 200, history: 100 };
+    const colors = { green: '#00C853', progress: '#9E9E9E', deviation: '#FFC107' };
+
+    let currSegIdx = -1;
+    let lastSnappedIdx = 0;
+    let deviating = false;
+    let deviationCoords = [];
+
+    // 图层引用
+    let greenPolyline = null;
+    let progressPolyline = null;
+    let deviationPolyline = null;
+    const historyPolylines = [];
+
+    // 参数
+    let snapRadiusM = 5;
+    let arriveRadiusM = 10;
+    try {
+        if (MapConfig && MapConfig.navigationConfig) {
+            if (typeof MapConfig.navigationConfig.snapToIndexMeters === 'number') snapRadiusM = MapConfig.navigationConfig.snapToIndexMeters;
+            if (typeof MapConfig.navigationConfig.segmentArriveRadiusMeters === 'number') arriveRadiusM = MapConfig.navigationConfig.segmentArriveRadiusMeters;
+        }
+    } catch (e) {}
+
+    function distanceM(a, b) { return calculateDistanceBetweenPoints(a, b); }
+
+    function startSegment(i) {
+        const seg = segments[i];
+        if (!seg) return;
+        currSegIdx = i;
+        lastSnappedIdx = 0;
+        deviating = false;
+        deviationCoords = [];
+
+        // 初始化一次性绿色线
+        try { if (greenPolyline) navigationMap.remove(greenPolyline); } catch (e) {}
+        greenPolyline = new AMap.Polyline({
+            path: seg.points,
+            strokeColor: colors.green,
+            strokeWeight: greenWeight,
+            strokeOpacity: 1.0,
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: z.green,
+            map: navigationMap
+        });
+
+        // 初始化灰色进度（覆盖绿色）
+        try { if (progressPolyline) navigationMap.remove(progressPolyline); } catch (e) {}
+        progressPolyline = new AMap.Polyline({
+            path: [seg.points[0]],
+            strokeColor: colors.progress,
+            strokeWeight: progressWeight,
+            strokeOpacity: 1.0,
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: z.progress,
+            map: navigationMap
+        });
+
+        // 清空偏航黄线
+        try { if (deviationPolyline) navigationMap.remove(deviationPolyline); } catch (e) {}
+        deviationPolyline = null;
+    }
+
+    function completeCurrentSegment() {
+        const seg = segments[currSegIdx];
+        if (!seg) return;
+        // 固化整段为底部灰色
+        const history = new AMap.Polyline({
+            path: seg.points,
+            strokeColor: colors.progress,
+            strokeWeight: greenWeight, // 历史灰线可与绿线同宽
+            strokeOpacity: 1.0,
+            lineJoin: 'round',
+            lineCap: 'round',
+            zIndex: z.history,
+            map: navigationMap
+        });
+        historyPolylines.push(history);
+
+        // 清理当前层
+        try { if (progressPolyline) navigationMap.remove(progressPolyline); } catch (e) {}
+        try { if (greenPolyline) navigationMap.remove(greenPolyline); } catch (e) {}
+        try { if (deviationPolyline) navigationMap.remove(deviationPolyline); } catch (e) {}
+        progressPolyline = null; greenPolyline = null; deviationPolyline = null; deviating = false;
+
+        // 处理到达提示与记录
+        if (seg.waypointName) {
+            try {
+                visitedWaypoints.add(seg.waypointName);
+                showArrivalNotification(seg.waypointName, 2000);
+                speakNavigation(`已到达${seg.waypointName}`);
+            } catch (e) {}
+        }
+
+        // 下一段或结束
+        currSegIdx += 1;
+        if (currSegIdx < segments.length) {
+            startSegment(currSegIdx);
+            try { switchToNextTarget(); updateDestinationInfo(); } catch (e) {}
+        } else {
+            // 全部完成
+            try { finishNavigation(); } catch (e) {}
+        }
+    }
+
+    function findNearestIndexInSegment(pos, pts) {
+        let bestIdx = -1; let bestDist = Number.POSITIVE_INFINITY;
+        const start = Math.max(0, lastSnappedIdx - 3);
+        for (let i = start; i < pts.length; i++) {
+            const d = distanceM(pos, pts[i]);
+            if (d < bestDist) { bestDist = d; bestIdx = i; }
+        }
+        return { index: bestIdx, distance: bestDist };
+    }
+
+    return {
+        // 在开始导航时初始化第一段的绿色与进度灰
+        start() {
+            if (segments.length === 0) return;
+            startSegment(0);
+        },
+        // GPS位置更新
+        onPosition(pos) {
+            if (currSegIdx < 0 || currSegIdx >= segments.length) return { snapped: false };
+            const seg = segments[currSegIdx];
+            const near = findNearestIndexInSegment(pos, seg.points);
+            const canSnap = (near.index >= 0) && (near.distance <= snapRadiusM);
+
+            if (canSnap) {
+                // 结束偏航，但保留黄线
+                deviating = false;
+
+                if (near.index > lastSnappedIdx) {
+                    lastSnappedIdx = near.index;
+                    try { progressPolyline && progressPolyline.setPath(seg.points.slice(0, lastSnappedIdx + 1)); } catch (e) {}
+                }
+
+                // 段完成判定
+                const endPt = seg.points[seg.points.length - 1];
+                const atEnd = (lastSnappedIdx >= seg.points.length - 1) || (distanceM(pos, endPt) <= arriveRadiusM);
+                if (atEnd) {
+                    completeCurrentSegment();
+                }
+                return { snapped: true };
+            } else {
+                // 偏航：从最后吸附索引点到真实点画黄线
+                const anchor = seg.points[Math.max(0, lastSnappedIdx)];
+                if (!deviating) {
+                    deviating = true;
+                    deviationCoords = [anchor, pos];
+                    try { if (deviationPolyline) navigationMap.remove(deviationPolyline); } catch (e) {}
+                    deviationPolyline = new AMap.Polyline({
+                        path: deviationCoords,
+                        strokeColor: colors.deviation,
+                        strokeWeight: greenWeight,
+                        strokeOpacity: 1.0,
+                        lineJoin: 'round',
+                        lineCap: 'round',
+                        zIndex: z.deviation,
+                        map: navigationMap
+                    });
+                } else {
+                    deviationCoords.push(pos);
+                    try { deviationPolyline && deviationPolyline.setPath(deviationCoords); } catch (e) {}
+                }
+                return { snapped: false };
+            }
+        },
+        // 清理所有图层
+        cleanup() {
+            try { if (greenPolyline) navigationMap.remove(greenPolyline); } catch (e) {}
+            try { if (progressPolyline) navigationMap.remove(progressPolyline); } catch (e) {}
+            try { if (deviationPolyline) navigationMap.remove(deviationPolyline); } catch (e) {}
+            greenPolyline = null; progressPolyline = null; deviationPolyline = null;
+            historyPolylines.forEach(p => { try { navigationMap.remove(p); } catch (e) {} });
+        }
+    };
+}
+
 // 初始化导航地图
 function initNavigationMap() {
     console.log('初始化导航地图...');
@@ -1738,6 +1958,7 @@ function cleanupMap() {
 
     if (navigationMap) {
         try {
+            if (segController) { try { segController.cleanup(); } catch (e) {} segController = null; }
             if (startMarker) { navigationMap.remove(startMarker); startMarker = null; }
             if (endMarker) { navigationMap.remove(endMarker); endMarker = null; }
             if (waypointMarkers && waypointMarkers.length) { navigationMap.remove(waypointMarkers); waypointMarkers = []; }
@@ -1907,7 +2128,7 @@ function startNavigationUI() {
         // 查找第一个转向点
         findNextTurnPoint();
 
-        // 基于当前规划路径构建"途经点索引映射"，用于到达/转向提示
+        // 基于当前规划路径构建"途径点索引映射"，用于到达/转向提示
         try {
             waypointIndexMap = buildWaypointIndexMap(navigationPath, routeData && routeData.waypoints);
             console.log('【导航开始】构建途经点索引映射，共', waypointIndexMap.length, '个途经点');
@@ -1915,6 +2136,18 @@ function startNavigationUI() {
             console.warn('构建途经点索引映射失败:', e);
             waypointIndexMap = [];
         }
+
+        // 新模式：分段一次性绿色 + 索引吸附
+        try {
+            if (segNavEnabled) {
+                // 规范化为 [lng,lat]
+                const normPath = (navigationPath || []).map(p => normalizeLngLat(p));
+                segController = createSegmentNavigator(normPath, waypointIndexMap);
+                segController && segController.start();
+                // 隐藏原整条绿色线，避免与分段绿色重复显示
+                try { if (routePolyline && navigationMap) navigationMap.remove(routePolyline); } catch (e) {}
+            }
+        } catch (e) { console.warn('初始化分段导航失败:', e); }
     }
 
     // 更新导航提示信息
@@ -1923,8 +2156,11 @@ function startNavigationUI() {
     // 启动基于真实GPS的导航追踪
     startRealNavigationTracking();
 
-    // 开启导航路线的白色方向箭头（仅在开始导航后）
-    enableRouteArrows();
+    // 新模式不启用整线箭头
+    if (!segNavEnabled) {
+        // 开启导航路线的白色方向箭头（旧模式）
+        enableRouteArrows();
+    }
 
     console.log('导航已开始');
     try { speakNavigation('导航已开始，请注意行车安全'); } catch (e) {}
@@ -2141,12 +2377,14 @@ function updateNavigationTip() {
         }
     }
 
-    // 计算剩余距离: 直接使用routePolyline.getLength()获取准确距离
-    // 改进: routePolyline已在updatePathSegments()中更新为[当前投影点→当前目标点]
-    // 因此getLength()返回的就是到当前目标点(途径点/终点)的准确距离
-
+    // 计算剩余距离
+    // 新模式：使用沿路网到当前目标点的距离（基于路径索引计算）
+    // 旧模式：沿用 routePolyline.getLength()
     let distanceToCurrentTarget = 0;
-    if (routePolyline && typeof routePolyline.getLength === 'function') {
+    if (segNavEnabled) {
+        const curr = userMarker ? [userMarker.getPosition().lng, userMarker.getPosition().lat] : navigationPath[0];
+        try { distanceToCurrentTarget = getDistanceToCurrentTarget(curr, navigationPath) || 0; } catch (e) { distanceToCurrentTarget = 0; }
+    } else if (routePolyline && typeof routePolyline.getLength === 'function') {
         distanceToCurrentTarget = routePolyline.getLength();
     }
 
@@ -4258,20 +4496,24 @@ function startRealNavigationTracking() {
             }
 
             // 路径展示策略：
-            // - 未到达起点：保持与“路线规划阶段”一致的整条绿色路线，不画灰线/黄线
-            // - 到达起点后：按原逻辑进行分段显示（灰：已走；绿：剩余；黄：偏离）
+            // - 未到达起点：保持与“路线规划阶段”一致的整条绿色路线，不画灰线/黄线（新模式下仍保留蓝色引导线）
+            // - 到达起点后：
+            //   新模式：分段一次性绿色+灰色覆盖+索引吸附，偏航黄色真实轨迹
+            //   旧模式：按原逻辑进行投影与剩余绿色动态显示
             if (!hasReachedStart) {
                 // 移除灰线/黄线
                 if (passedRoutePolyline) { try { navigationMap.remove(passedRoutePolyline); } catch (e) {} passedRoutePolyline = null; }
                 if (deviatedRoutePolyline) { try { navigationMap.remove(deviatedRoutePolyline); } catch (e) {} deviatedRoutePolyline = null; }
                 deviatedPath = [];
 
-                // 强制保持整条规划路径（起点→终点）为绿色
-                try {
-                    if (routePolyline && typeof routePolyline.setPath === 'function') {
-                        routePolyline.setPath(fullPath);
-                    }
-                } catch (e) { console.warn('设置整条规划路径失败:', e); }
+                // 旧模式下保持整条绿色线；新模式已在开始时绘制首段绿色
+                if (!segNavEnabled) {
+                    try {
+                        if (routePolyline && typeof routePolyline.setPath === 'function') {
+                            routePolyline.setPath(fullPath);
+                        }
+                    } catch (e) { console.warn('设置整条规划路径失败:', e); }
+                }
 
                 // 绘制“前往起点”的蓝色虚线箭头（当前位置 → 起点）
                 try {
@@ -4297,20 +4539,25 @@ function startRealNavigationTracking() {
                     }
                 } catch (e) { console.warn('更新前往起点引导线失败:', e); }
 
-                console.log('未到达起点：展示整条绿色规划路线');
+                console.log('未到达起点：展示整条规划路线/引导到起点');
             } else {
                 // 已到达起点，移除“前往起点”引导线
                 if (preStartGuidePolyline) {
                     try { navigationMap.remove(preStartGuidePolyline); } catch (e) {}
                     preStartGuidePolyline = null;
                 }
-                // 已到达起点，按原有分段逻辑处理
-                // 使用displayPos（吸附后的位置）而不是curr（原始GPS），保持与位置图标一致
-                updatePathSegments(displayPos, fullPath, segIndex, projectionPoint);
+                if (segNavEnabled && segController) {
+                    // 新模式：按索引吸附推进灰色覆盖/偏航黄色
+                    const res = segController.onPosition(curr);
+                    isOffRoute = !(res && res.snapped);
+                } else {
+                    // 旧模式：使用投影分割剩余与已走
+                    updatePathSegments(displayPos, fullPath, segIndex, projectionPoint);
+                }
             }
 
-            // 视图跟随：跟随显示位置（吸附后的位置）
-            try { navigationMap.setCenter(lastRenderPosNav || curr); } catch (e) {}
+            // 视图跟随
+            try { navigationMap.setCenter(curr); } catch (e) {}
 
             // ====== 分支检测逻辑 ======
             if (hasReachedStart && !isOffRoute && fullPath && fullPath.length > 0) {
@@ -4448,7 +4695,10 @@ function startRealNavigationTracking() {
                 }
 
                 // 先判定是否到达途径点（基于沿路网距离）
-                try { markWaypointArrivalIfNeeded(lastRenderPosNav || curr, fullPath); } catch (e) {}
+                if (!segNavEnabled) {
+                    // 新模式在分段完成时已处理到达逻辑
+                    try { markWaypointArrivalIfNeeded(lastRenderPosNav || curr, fullPath); } catch (e) {}
+                }
                 updateNavigationTip();
             } else {
                 // 未到起点时，仅刷新“请前往起点”的提示卡片
@@ -4693,6 +4943,9 @@ function stopRealNavigationTracking() {
     turnSequence = [];
     turnSeqPtr = 0;
     deviatedPath = []; // 清空偏离路径点集合
+    // 清理分段渲染
+    try { if (segController) { segController.cleanup(); } } catch (e) {}
+    segController = null;
     // 停止设备方向监听
     tryStopDeviceOrientationNav();
 }
