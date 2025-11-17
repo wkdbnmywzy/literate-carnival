@@ -2334,15 +2334,18 @@ function updateNavigationTip() {
                 // 根据方向类型生成简化的播报内容
                 if (directionType === 'left') {
                     // 根据距离分档播报，避免频繁变化
-                    if (d <= 10) msg = '请左转';
+                    if (d <= 5) msg = '请左转';
+                    else if (d <= 10) msg = '请左转';
                     else if (d <= 50) msg = '前方左转';
                     else msg = '继续前进，准备左转';
                 } else if (directionType === 'right') {
-                    if (d <= 10) msg = '请右转';
+                    if (d <= 5) msg = '请右转';
+                    else if (d <= 10) msg = '请右转';
                     else if (d <= 50) msg = '前方右转';
                     else msg = '继续前进，准备右转';
                 } else if (directionType === 'uturn' || directionType === 'backward') {
-                    if (d <= 10) msg = '请掉头';
+                    if (d <= 5) msg = '请掉头';
+                    else if (d <= 10) msg = '请掉头';
                     else if (d <= 50) msg = '前方掉头';
                     else msg = '继续前进，准备掉头';
                 } else if (directionType === 'forward' || directionType === 'straight') {
@@ -3256,7 +3259,29 @@ function updateDirectionIcon(directionType, distanceToNext, options) {
             distanceUnitElem.style.display = 'none';
         }
 
-        // 不改变背景色，保持蓝色一致性
+        // 添加"请前往起点"的语音播报
+        if (!hasReachedStart && tipText === '请前往起点') {
+            try {
+                // 检查是否已经播报过相同内容，避免重复
+                const now = Date.now();
+                // 确保变量存在，避免未定义错误
+                const lastMessage = typeof lastNavPromptMessage !== 'undefined' ? lastNavPromptMessage : '';
+                const lastTime = typeof lastNavPromptTime !== 'undefined' ? lastNavPromptTime : 0;
+                
+                if (tipText !== lastMessage || (now - lastTime) > 10000) {
+                    speakNavigation(tipText, { suppressionMs: 10000 });
+                    // 更新全局变量
+                    if (typeof lastNavPromptMessage !== 'undefined') {
+                        lastNavPromptMessage = tipText;
+                    }
+                    if (typeof lastNavPromptTime !== 'undefined') {
+                        lastNavPromptTime = now;
+                    }
+                }
+            } catch (e) {
+                console.warn('语音播报失败:', e);
+            }
+        }
 
         // 这里直接返回，避免后续正常导航逻辑覆盖图标与文案
         return;
