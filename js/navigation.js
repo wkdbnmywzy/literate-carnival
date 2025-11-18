@@ -167,7 +167,7 @@ function processNavTTSQueue() {
             setTimeout(processNavTTSQueue, 120);
         });
 }
-let isOffRoute = false;            // 是否偏离路径
+let isOffRoute = true;            // 是否偏离路径
 let offRouteThreshold = 15;        // 偏离路径阈值（米），考虑GPS精度设为15米
 let lastDirectionType = null;      // 上一次的导航方向类型，用于增加稳定性
 let passedRoutePolyline = null;    // 已走过的规划路径（灰色）
@@ -1879,7 +1879,7 @@ function startNavigationUI() {
 
     isNavigating = true;
     hasReachedStart = false; // 重置：要求先到达起点附近再开始沿路网导航
-    isOffRoute = false;  // 重置偏离路路径状态
+    isOffRoute = true;  // 重置偏离路路径状态
     maxPassedSegIndex = -1; // 重置已走过的最远点索引
     passedSegments.clear(); // 清空已走过的路段标记
     visitedWaypoints.clear(); // 清空已访问的途径点
