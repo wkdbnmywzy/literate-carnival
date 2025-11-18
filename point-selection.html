@@ -63,21 +63,11 @@
             <div class="picker-categories">
                 <div class="picker-category-section">
                     <div class="picker-category-title">建筑</div>
-                    <div class="picker-category-tags">
-                        <span class="picker-tag">1号楼</span>
-                        <span class="picker-tag">2号楼</span>
-                        <span class="picker-tag">3号楼</span>
-                        <span class="picker-tag">4号楼</span>
-                        <span class="picker-tag">5号楼</span>
-                    </div>
+                    <div class="picker-category-tags" id="building-tags"></div>
                 </div>
                 <div class="picker-category-section">
                     <div class="picker-category-title">区域</div>
-                    <div class="picker-category-tags">
-                        <span class="picker-tag">1号楼材料堆放区</span>
-                        <span class="picker-tag">砂石堆放区</span>
-                        <span class="picker-tag">墙体材料区</span>
-                    </div>
+                    <div class="picker-category-tags" id="area-tags"></div>
                 </div>
             </div>
 
@@ -195,6 +185,71 @@
         });
     }
 
+    // 根据KML点渲染“建筑/区域”分类标签
+    function renderCategoryTags() {
+        const buildingContainer = document.getElementById('building-tags');
+        const areaContainer = document.getElementById('area-tags');
+        if (!buildingContainer || !areaContainer) return;
+
+        const getPoints = (typeof getAllKMLPoints === 'function')
+            ? () => getAllKMLPoints('')
+            : () => loadKMLPoints();
+
+        const points = getPoints();
+
+        // 清空容器
+        buildingContainer.innerHTML = '';
+        areaContainer.innerHTML = '';
+
+        if (!points || points.length === 0) {
+            // 无数据时给出提示占位
+            buildingContainer.innerHTML = '<span class="picker-tag" style="opacity:.5; pointer-events:none;">暂无数据</span>';
+            areaContainer.innerHTML = '<span class="picker-tag" style="opacity:.5; pointer-events:none;">暂无数据</span>';
+            return;
+        }
+
+        // 去重（按名称）
+        const uniqueByName = new Map();
+        points.forEach(p => { if (p && p.name) uniqueByName.set(p.name, p); });
+        const uniquePoints = Array.from(uniqueByName.values());
+
+        // 简单规则分类：包含“楼/栋/馆/中心/大厦/宿舍/办公”为建筑；包含“区/堆场/加工/材料/停车/广场/场”为区域
+        const buildingRegex = /(楼|栋|馆|中心|大厦|宿舍|办公|库|车库)/;
+        const areaRegex = /(区|堆场|加工|材料|停车|广场|场)/;
+
+        const buildings = [];
+        const areas = [];
+
+        uniquePoints.forEach(p => {
+            const name = p.name || '';
+            if (areaRegex.test(name) && !buildingRegex.test(name)) {
+                areas.push(name);
+            } else if (buildingRegex.test(name)) {
+                buildings.push(name);
+            } else {
+                // 未匹配的名称：优先归入建筑，避免遗漏
+                buildings.push(name);
+            }
+        });
+
+        // 渲染标签的辅助函数
+        const appendTags = (container, names) => {
+            // 最多展示30个，避免过多
+            names.slice(0, 30).forEach(n => {
+                const span = document.createElement('span');
+                span.className = 'picker-tag';
+                span.textContent = n;
+                container.appendChild(span);
+            });
+            if (names.length === 0) {
+                container.innerHTML = '<span class="picker-tag" style="opacity:.5; pointer-events:none;">暂无数据</span>';
+            }
+        };
+
+        appendTags(buildingContainer, buildings);
+        appendTags(areaContainer, areas);
+    }
+
     // 获取当前激活的输入框
     function getCurrentActiveInput() {
         const startInput = document.getElementById('picker-start-location');
@@ -232,6 +287,9 @@
 
         // 渲染KML点位列表
         renderPointsList();
+
+        // 渲染分类标签（建筑/区域）
+        renderCategoryTags();
 
         // 为"我的位置"添加点击事件
         const myLocationItem = document.querySelector('.picker-location-item');
