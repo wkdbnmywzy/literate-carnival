@@ -191,11 +191,20 @@
     text-align: center;
 }
 
-/* 途径点容器 */
+/* 途径点容器 - 垂直排列，3个以上时可滚动（无滚动条） */
 .waypoints-container {
     display: flex;
     flex-direction: column;
-    gap: 0; /* 与起点/终点一致的紧凑间距 */
+    gap: 0;
+    max-height: 180px; /* 限制最大高度，约3个途径点的高度 */
+    overflow-y: auto; /* 允许垂直滚动 */
+    /* 隐藏滚动条 */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE and Edge */
+}
+
+.waypoints-container::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Opera */
 }
 
 /* 路线信息 */
@@ -260,20 +269,31 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 0; /* 与其他输入行一致 */
-    position: relative; /* 用伪元素绘制与分隔线等长的下划线 */
+    margin-top: 0;
+    position: relative;
 }
 
 .waypoint-row .location-item {
     display: flex;
     align-items: center;
     gap: 12px;
-    background: transparent; /* 移除方框 */
+    background: transparent;
     border: none;
     border-radius: 0;
-    padding: 14px 12px 14px 16px; /* 与起点/终点一致 */
+    padding: 14px 12px 14px 16px;
     position: relative;
     flex: 1;
+}
+
+/* 途径点下划线 */
+.waypoint-row::after {
+    content: '';
+    position: absolute;
+    left: 16px;
+    right: 12px;
+    bottom: 0;
+    height: 1px;
+    background: #e6e9ef;
 }
 
 .waypoint-row .location-item .waypoint-input {
@@ -524,6 +544,23 @@
 
 .destination-stats .time {
     font-weight: 600;
+}
+
+/* 指北针样式 */
+.compass-indicator {
+    position: absolute;
+    width: 48px;
+    height: 48px;
+    z-index: 100;
+    pointer-events: none; /* 不阻挡地图交互 */
+    transition: transform 0.3s ease; /* 平滑旋转 */
+}
+
+.compass-indicator img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3)); /* 添加阴影增强可见性 */
 }
 
 /* 响应式调整 */

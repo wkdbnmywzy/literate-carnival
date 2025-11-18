@@ -49,6 +49,8 @@ let preStartGuidePolyline = null;
 // 导航页动态角度偏移：用于自动修正稳定的180°反向
 let dynamicAngleOffsetNav = 0; // 0 或 180
 let calibrationStateNav = { count0: 0, count180: 0, locked: false };
+// 【新增】指北针相关
+let compassIndicator = null;      // 指北针DOM元素
 // TTS 语音播报支持（会尽量使用讯飞 TTS ，失败或不可用时回退到浏览器 SpeechSynthesis）
 let navTTS = null; // 可能为 XunfeiTTS 实例
 let navTTSQueue = [];
@@ -223,6 +225,25 @@ function initNavigationMap() {
 
         // 3. 启动实时定位（显示我的位置）
         startRealtimePositionTracking();
+    });
+
+    // 【新增】监听地图移动和缩放事件，更新指北针位置
+    navigationMap.on('moveend', function() {
+        if (userMarker && compassIndicator) {
+            const pos = userMarker.getPosition();
+            if (pos) {
+                createOrUpdateCompass([pos.lng, pos.lat]);
+            }
+        }
+    });
+
+    navigationMap.on('zoomend', function() {
+        if (userMarker && compassIndicator) {
+            const pos = userMarker.getPosition();
+            if (pos) {
+                createOrUpdateCompass([pos.lng, pos.lat]);
+            }
+        }
     });
 
     console.log('导航地图初始化完成');
@@ -2905,12 +2926,12 @@ function navApplyHeadingToMarker(rawHeading) {
         console.error('[nav] 应用朝向失败:', err);
     }
 
-    // 更新方位角标签显示
-    try {
-        updateHeadingLabel(rawHeading);
-    } catch (err) {
-        console.error('[nav] 更新方位角标签失败:', err);
-    }
+    // 【已禁用】更新方位角标签显示
+    // try {
+    //     updateHeadingLabel(rawHeading);
+    // } catch (err) {
+    //     console.error('[nav] 更新方位角标签失败:', err);
+    // }
 }
 
 // ====== 更新位置标记周围的方位角标签 ======
@@ -3664,6 +3685,60 @@ function updateAccuracyCircle(position, accuracy) {
     }
 }
 
+// ====== 创建或更新指北针 ======
+function createOrUpdateCompass(userMarkerPosition) {
+    if (!navigationMap || !userMarker) {
+        return;
+    }
+
+    try {
+        // 如果指北针不存在，创建它
+        if (!compassIndicator) {
+            // 创建指北针DOM元素
+            compassIndicator = document.createElement('div');
+            compassIndicator.className = 'compass-indicator';
+            compassIndicator.innerHTML = '<img src="images/工地数字导航小程序切图/司机/2X/导航/方向指示.png" alt="指北针">';
+            
+            // 添加到地图容器
+            const mapContainer = document.getElementById('navigation-map-container');
+            if (mapContainer) {
+                mapContainer.appendChild(compassIndicator);
+                console.log('指北针创建成功');
+            }
+        }
+
+        // 更新指北针位置（以userMarker为中心）
+        if (compassIndicator && userMarkerPosition) {
+            // 将经纬度转换为屏幕像素坐标
+            const pixel = navigationMap.lngLatToContainer(userMarkerPosition);
+            
+            // 指北针位置：以userMarker为中心（使用transform居中）
+            compassIndicator.style.left = pixel.x + 'px';
+            compassIndicator.style.top = pixel.y + 'px';
+            
+            // 指北针始终指向北方（地图旋转角度为0时，不需要旋转）
+            // 如果地图有旋转，需要根据地图旋转角度调整指北针
+            const mapRotation = navigationMap.getRotation() || 0;
+            compassIndicator.style.transform = `translate(-50%, -50%) rotate(${-mapRotation}deg)`;
+        }
+    } catch (e) {
+        console.error('创建或更新指北针失败:', e);
+    }
+}
+
+// ====== 移除指北针 ======
+function removeCompass() {
+    if (compassIndicator) {
+        try {
+            compassIndicator.remove();
+            compassIndicator = null;
+            console.log('指北针已移除');
+        } catch (e) {
+            console.error('移除指北针失败:', e);
+        }
+    }
+}
+
 // ====== 检查用户是否在规划路线上（改进的精度圈检测） ======
 // 返回: { onRoute: boolean, projectionPoint: [lng, lat] | null, segmentIndex: number }
 function checkIfOnRouteWithAccuracy(userPos, routePath, accuracy) {
@@ -4223,6 +4298,9 @@ function startRealNavigationTracking() {
             userMarker.setPosition(displayPos);
             lastRenderPosNav = displayPos;
             lastGpsPos = displayPos;
+            
+            // 【新增】更新指北针位置
+            createOrUpdateCompass(displayPos);
 
             // 检查是否偏离路径并更新路径显示（使用精度圈判断）
             // 已在上方计算了 routeCheckResult，可直接复用
@@ -4711,6 +4789,8 @@ function stopRealNavigationTracking() {
     if (userMarker && navigationMap) { navigationMap.remove(userMarker); userMarker = null; }
     if (headingLabel && navigationMap) { navigationMap.remove(headingLabel); headingLabel = null; }
     if (accuracyCircle && navigationMap) { navigationMap.remove(accuracyCircle); accuracyCircle = null; }
+    // 【新增】移除指北针
+    removeCompass();
     if (passedRoutePolyline && navigationMap) { navigationMap.remove(passedRoutePolyline); passedRoutePolyline = null; }
     if (deviatedRoutePolyline && navigationMap) { navigationMap.remove(deviatedRoutePolyline); deviatedRoutePolyline = null; }
     if (preStartGuidePolyline && navigationMap) { try { navigationMap.remove(preStartGuidePolyline); } catch (e) {} preStartGuidePolyline = null; }
