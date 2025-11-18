@@ -133,7 +133,16 @@ const MapConfig = {
         // 通过一个转向后，最少等待多久再显示下一条指示（毫秒），避免连跳
         postTurnNextPromptMinTimeMs: 1500,
         // 提示模式：'path'（基于路网，默认）或 'heading'（基于用户朝向）
-        promptMode: 'path'
+        promptMode: 'path',
+        
+        // ====== GPS过滤配置（防止GPS漂移） ======
+        // 是否启用GPS过滤（默认启用）
+        gpsFilterEnabled: true,
+        // GPS最大跳跃距离（米）：超过此距离的GPS数据将被视为异常并拒绝
+        // 建议值：30-100米，根据实际场景调整
+        gpsMaxJumpDistanceMeters: 50,
+        // GPS历史记录大小：保留最近N个有效GPS位置用于异常检测
+        gpsMaxHistorySize: 5
     }
 };
 
