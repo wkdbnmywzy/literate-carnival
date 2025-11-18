@@ -687,19 +687,20 @@ function loadSearchHistory() {
 function selectTagLocation(tagName) {
     console.log('选择标签位置:', tagName);
 
-    // 根据当前活动的输入框设置值
+    // 根据当前活动的输入框设置值（兼容选择面板与首页）
     if (currentInputType === 'start') {
-        document.getElementById('start-location').value = tagName;
         const pickerStartInput = document.getElementById('picker-start-location');
-        if (pickerStartInput) {
-            pickerStartInput.value = tagName;
-        }
+        if (pickerStartInput) pickerStartInput.value = tagName;
+        const startInput = document.getElementById('start-location');
+        if (startInput) startInput.value = tagName;
     } else if (currentInputType === 'end') {
-        document.getElementById('end-location').value = tagName;
         const pickerEndInput = document.getElementById('picker-end-location');
-        if (pickerEndInput) {
-            pickerEndInput.value = tagName;
-        }
+        if (pickerEndInput) pickerEndInput.value = tagName;
+        const endInput = document.getElementById('end-location');
+        if (endInput) endInput.value = tagName;
+    } else if (currentInputType === 'waypoint' && currentActiveInput) {
+        const waypointInput = document.getElementById(currentActiveInput);
+        if (waypointInput) waypointInput.value = tagName;
     }
 
     // 添加到搜索历史（标签选择）
