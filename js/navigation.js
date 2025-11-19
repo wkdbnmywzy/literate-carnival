@@ -174,6 +174,7 @@ let passedRoutePolyline = null;    // 已走过的规划路径（灰色）
 let deviatedRoutePolyline = null;  // 偏离的实际路径（黄色）
 let deviatedPath = [];             // 偏离路径的点���合
 let maxPassedSegIndex = -1;        // 记录用户走过的最远路径点索引
+let lastProjection = null;         // ====== 新增：记录上次投影结果，用于方向性约束 ======
 let passedSegments = new Set();    // 记录已走过的路段（格式："startIndex-endIndex"）
 let visitedWaypoints = new Set();  // 记录已到达的途径点名称
 let currentTargetPoint = null;     // 当前目标点：{ type: 'start'|'waypoint'|'end', name: string, position: [lng,lat], index?: number }
@@ -1885,6 +1886,7 @@ function startNavigationUI() {
     passedSegments.clear(); // 清空已走过的路段标记
     visitedWaypoints.clear(); // 清空已访问的途径点
     deviatedPath = []; // 清空偏离路径点集合
+    lastProjection = null; // ====== 新增：重置投影记录 ======
     currentBranchInfo = null; // 清空分支信息
     userChosenBranch = -1; // 重置用户分支选择
     lastBranchNotificationTime = 0; // 重置分支提示时间
@@ -2219,7 +2221,7 @@ function updateNavigationTip() {
         [userMarker.getPosition().lng, userMarker.getPosition().lat] :
         navigationPath[Math.max(0, currentNavigationIndex)];
 
-    // 以“分段（起点→下一未达途径点 / 终点）”为单位限制提示，只考虑当前分段内的转向
+    // 以"分段（起点→下一未达途径点 / 终点）"为单位限制提示，只考虑当前分段内的转向
     let legEndIndex = (navigationPath && navigationPath.length > 0) ? navigationPath.length - 1 : 0;
     try {
         if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0) {
@@ -2233,11 +2235,36 @@ function updateNavigationTip() {
         }
     } catch (e) {}
 
+    // ====== 新增：优先检测段间掉头 ======
+    // 如果检测到需要掉头，优先提示掉头，而不是使用预计算的转向序列
+    let uturnInfo = null;
+    try {
+        uturnInfo = detectSegmentUturn(navigationPath, waypointIndexMap, currPos);
+        if (uturnInfo && uturnInfo.needsUturn && uturnInfo.uturnDistance > 0) {
+            // 只在距离掉头点足够近时提示（默认30米内）
+            let uturnPromptDist = 30;
+            try {
+                if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.uturnPromptDistanceMeters === 'number') {
+                    uturnPromptDist = MapConfig.navigationConfig.uturnPromptDistanceMeters;
+                }
+            } catch (e) {}
+
+            if (uturnInfo.uturnDistance <= uturnPromptDist) {
+                // 提示掉头
+                updateDirectionIcon('uturn', uturnInfo.uturnDistance);
+                console.log('【导航提示】掉头：', uturnInfo.waypointName, '距离:', uturnInfo.uturnDistance.toFixed(2), '米');
+                return; // 提示掉头后直接返回，不再执行后续逻辑
+            }
+        }
+    } catch (e) {
+        console.warn('掉头检测失败:', e);
+    }
+
     // 首选：使用预计算转向序列（基于规划路径）
     let directionType = 'straight';
     let distanceToNext = 0;
     let usedPrecomputed = false;
-    // 若处于“转向完成后抑制窗口”，短暂只展示直行，避免连续路口连跳
+    // 若处于"转向完成后抑制窗口"，短暂只展示直行，避免连续路口连跳
     try {
         if (postTurnGateUntilTime && Date.now() < postTurnGateUntilTime) {
             updateDirectionIcon('forward', 0);
@@ -4044,6 +4071,9 @@ function startRealNavigationTracking() {
     // 【新增】清空GPS历史记录
     clearGPSHistory();
 
+    // 【新增】重置投影记录
+    lastProjection = null;
+
     // 【新增】清空播报记录
     lastNavPromptMessage = '';
     lastNavPromptTime = 0;
@@ -4687,6 +4717,152 @@ function buildWaypointIndexMap(path, waypoints) {
     return mapArr;
 }
 
+// ====== 新增：检测段与段之间的掉头情况 ======
+// 检测当前段的结束部分是否与下一段的开始部分重叠（路径重合），如果重合则判定为掉头
+// 返回：{ needsUturn: boolean, uturnDistance: number, waypointName: string }
+function detectSegmentUturn(path, wptMap, currPos) {
+    const result = { needsUturn: false, uturnDistance: 0, waypointName: '' };
+
+    if (!Array.isArray(path) || path.length < 2 || !Array.isArray(wptMap) || wptMap.length === 0) {
+        return result;
+    }
+
+    const proj = projectPointOntoPathMeters(currPos, path);
+    if (!proj) return result;
+    const currIdx = proj.index;
+
+    // 找到下一个未到达的途径点
+    let nextWaypoint = null;
+    for (const w of wptMap) {
+        if (!w || visitedWaypoints.has(w.name)) continue;
+        if (typeof w.index !== 'number') continue;
+        if (w.index > currIdx) {
+            nextWaypoint = w;
+            break;
+        }
+    }
+
+    if (!nextWaypoint) return result; // 没有下一个途径点，无需检测掉头
+
+    // 检测逻辑：
+    // 1. 获取当前段（起点到途径点）的最后一部分路径（最后20米或10%）
+    // 2. 获取下一段（途径点到下一个目标）的开始部分路径（开始20米或10%）
+    // 3. 检测这两部分路径的重合度
+
+    const waypointIdx = nextWaypoint.index;
+
+    // 找到下一段的起点和终点索引
+    let nextSegmentStartIdx = waypointIdx;
+    let nextSegmentEndIdx = path.length - 1; // 默认到终点
+
+    // 如果有后续途径点，下一段终点是下一个途径点
+    for (const w of wptMap) {
+        if (!w || visitedWaypoints.has(w.name)) continue;
+        if (typeof w.index !== 'number') continue;
+        if (w.index > waypointIdx) {
+            nextSegmentEndIdx = w.index;
+            break;
+        }
+    }
+
+    // 检测范围：默认20米或路段的10%（取较小值）
+    let checkDistanceMeters = 20;
+    try {
+        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.uturnDetectDistanceMeters === 'number') {
+            checkDistanceMeters = MapConfig.navigationConfig.uturnDetectDistanceMeters;
+        }
+    } catch (e) {}
+
+    // 计算当前段的总长度
+    let currentSegmentLength = 0;
+    for (let i = currIdx; i < waypointIdx; i++) {
+        if (i + 1 < path.length) {
+            currentSegmentLength += calculateDistanceBetweenPoints(path[i], path[i + 1]);
+        }
+    }
+
+    // 计算下一段的总长度
+    let nextSegmentLength = 0;
+    for (let i = nextSegmentStartIdx; i < nextSegmentEndIdx; i++) {
+        if (i + 1 < path.length) {
+            nextSegmentLength += calculateDistanceBetweenPoints(path[i], path[i + 1]);
+        }
+    }
+
+    // 使用较小的检测距离（20米 或 段长的10%）
+    const currentCheckDist = Math.min(checkDistanceMeters, currentSegmentLength * 0.1);
+    const nextCheckDist = Math.min(checkDistanceMeters, nextSegmentLength * 0.1);
+
+    // 从当前段末尾往前找检测范围内的点
+    const currentSegmentTail = [];
+    let accDist = 0;
+    for (let i = waypointIdx; i >= currIdx && accDist < currentCheckDist; i--) {
+        currentSegmentTail.unshift(path[i]);
+        if (i > 0) {
+            accDist += calculateDistanceBetweenPoints(path[i - 1], path[i]);
+        }
+    }
+
+    // 从下一段开头往后找检测范围内的点
+    const nextSegmentHead = [];
+    accDist = 0;
+    for (let i = nextSegmentStartIdx; i <= nextSegmentEndIdx && accDist < nextCheckDist; i++) {
+        nextSegmentHead.push(path[i]);
+        if (i < path.length - 1) {
+            accDist += calculateDistanceBetweenPoints(path[i], path[i + 1]);
+        }
+    }
+
+    // 检测重合度：计算两部分路径之间的平均距离
+    if (currentSegmentTail.length < 2 || nextSegmentHead.length < 2) {
+        return result; // 检测范围太短，无法判断
+    }
+
+    // 对每个当前段末尾的点，找到它在下一段开头路径上的最近距离
+    let totalMinDist = 0;
+    let validPoints = 0;
+    for (const tailPoint of currentSegmentTail) {
+        let minDist = Infinity;
+        for (let i = 0; i < nextSegmentHead.length - 1; i++) {
+            const proj = projectPointOntoSegment(tailPoint, nextSegmentHead[i], nextSegmentHead[i + 1]);
+            if (proj && typeof proj.distance === 'number') {
+                minDist = Math.min(minDist, proj.distance);
+            }
+        }
+        if (isFinite(minDist)) {
+            totalMinDist += minDist;
+            validPoints++;
+        }
+    }
+
+    if (validPoints === 0) return result;
+
+    const avgOverlapDist = totalMinDist / validPoints;
+
+    // 判定阈值：如果平均距离小于3米，认为路径重合，需要掉头
+    let overlapThreshold = 3;
+    try {
+        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.uturnOverlapThresholdMeters === 'number') {
+            overlapThreshold = MapConfig.navigationConfig.uturnOverlapThresholdMeters;
+        }
+    } catch (e) {}
+
+    if (avgOverlapDist < overlapThreshold) {
+        // 判定为需要掉头
+        result.needsUturn = true;
+        result.waypointName = nextWaypoint.name;
+
+        // 计算到途径点的距离（作为掉头提示距离）
+        result.uturnDistance = computeDistanceToIndexMeters(currPos, path, waypointIdx) || 0;
+
+        console.log('【掉头检测】✓ 检测到需要掉头：', nextWaypoint.name, '，距离:', result.uturnDistance.toFixed(2), '米，路径重合度:', avgOverlapDist.toFixed(2), '米');
+    } else {
+        console.log('【掉头检测】× 无需掉头，路径不重合，平均距离:', avgOverlapDist.toFixed(2), '米');
+    }
+
+    return result;
+}
+
 function getNearestUnvisitedWaypointDistanceMeters(currPos, path, wptMap) {
     if (!Array.isArray(path) || path.length < 2 || !Array.isArray(wptMap) || wptMap.length === 0) return Infinity;
     const proj = projectPointOntoPathMeters(currPos, path);
@@ -4725,6 +4901,10 @@ function markWaypointArrivalIfNeeded(currPos, path) {
         if (isFinite(d) && d <= arriveDistThresh) {
             visitedWaypoints.add(w.name);
             console.log('【途径点检测】✓ 到达途径点:', w.name, '(距离:', d.toFixed(2), '米)');
+
+            // ====== 新增：重置投影记录，允许下一段全局搜索，避免跨段问题 ======
+            lastProjection = null;
+            console.log('【途径点检测】重置投影记录，下一段将重新搜索');
 
             // 【新增】显示到达提示（3秒后自动更新下一段）
             showArrivalNotification(w.name, 3000);
@@ -4964,58 +5144,32 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
     // 优先使用传入的投影点，如果没有则计算投影点
     let routePoint, routeSegIndex, projection;
     if (projectionPoint && Array.isArray(projectionPoint) && projectionPoint.length >= 2) {
-        // 若传入了投影点，也计算一次投影以获得 t（用于“是否完全通过该段”判断）
-        projection = projectPointOntoPathMeters(projectionPoint, fullPath) || projectPointOntoPathMeters(currentPos, fullPath);
+        // 若传入了投影点，也计算一次投影以获得 t（用于"是否完全通过该段"判断）
+        // ====== 改进：使用带方向性约束的投影，避免在重合路段上投影到错误索引 ======
+        projection = projectPointOntoPathMetersWithDirectionality(projectionPoint, fullPath, lastProjection)
+                  || projectPointOntoPathMetersWithDirectionality(currentPos, fullPath, lastProjection);
         routePoint = projection ? projection.projected : projectionPoint;
         routeSegIndex = typeof projection?.index === 'number' ? projection.index : (segIndex >= 0 ? segIndex : findClosestPathIndex(projectionPoint, fullPath));
     } else {
         // 将当前位置投影到路网（找到最近线段与投影点），确保分段点在路网上
-        projection = projectPointOntoPathMeters(currentPos, fullPath);
+        // ====== 改进：使用带方向性约束的投影，避免在重合路段上投影到错误索引 ======
+        projection = projectPointOntoPathMetersWithDirectionality(currentPos, fullPath, lastProjection);
         routePoint = projection ? projection.projected : currentPos;
         routeSegIndex = projection ? projection.index : segIndex;
+    }
+
+    // ====== 记录本次投影结果，供下次使用 ======
+    if (projection) {
+        lastProjection = projection;
     }
 
     // 判断用户是否在路径上
     const onRoute = !isOffRoute;
 
-    // 仅将“已经完全通过”的路段标记为已走过：
-    // - 完全通过的定义：索引小于当前投影所在段；
-    // - 当前投影所在段，仅当 t >= passThreshold 时才视为通过
-    if (onRoute && routeSegIndex >= 0 && routeSegIndex < fullPath.length - 1) {
-        const passThreshold = (() => {
-            try {
-                if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.segmentPassT === 'number') {
-                    return Math.max(0.5, Math.min(0.99, MapConfig.navigationConfig.segmentPassT));
-                }
-            } catch (e) {}
-            return 0.95; // 默认 95% 认为通过该段
-        })();
+    // 【已移除】旧的路段标记逻辑（passedSegments）不再需要
+    // 现在使用实时投影点直接计算灰色和绿色路线的分界点
 
-        // 1) 将当前段之前的所有段都标记为已通过
-        const upToIndex = Math.max(0, routeSegIndex - 1);
-        for (let i = 0; i <= upToIndex; i++) {
-            const key = `${i}-${i + 1}`;
-            if (i < fullPath.length - 1 && !passedSegments.has(key)) {
-                passedSegments.add(key);
-            }
-        }
-
-        // 2) 若当前段投影比例 t 足够靠近终点，也将当前段标记为已通过
-        const t = (projection && typeof projection.t === 'number') ? projection.t : 0;
-        if (t >= passThreshold) {
-            const currKey = `${routeSegIndex}-${routeSegIndex + 1}`;
-            if (!passedSegments.has(currKey)) {
-                passedSegments.add(currKey);
-            }
-        }
-    }
-
-    // 更新最远索引（用于兼容性）：仅在在路上时更新，避免偏离时投影跳跃导致历史被“提前”
-    if (onRoute && routeSegIndex > maxPassedSegIndex) {
-        maxPassedSegIndex = routeSegIndex;
-    }
-
-    // 处理偏离路径的情况
+    // 是否强制要求到达起点附近再开始
     // 只有在已到达起点后，才记录和显示偏离轨迹
     if (!onRoute && hasReachedStart) {
         // 添加当前位置到偏离路径（使用实际GPS位置，不是投影点）
@@ -5056,35 +5210,66 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         deviatedPath = [];
     }
 
-    // 构建已走过的路径（灰色）：从规划起点到当前投影点的“整段已走路线”
+    // ====== 修复：基于索引点的灰色路线逻辑（支持回头路段）======
+    // 灰色路线 = 从导航起点索引到当前索引
+    // 关键：检测"回头"情况，当到达途径点后重新开始新的一段时，重置灰色起点
+
     let passedPath = [];
-    const confirmedPassedIndex = Math.max(0, maxPassedSegIndex);
-    
-    if (hasReachedStart && confirmedPassedIndex >= 0) {
-        // 导航开始后，显示从起点到已确认的最远点的完整路径
-        passedPath = fullPath.slice(0, confirmedPassedIndex + 1);
-        // 若投影点不等于该段端点，补上投影点，保证灰线精确到当前位置
-        if (routePoint && confirmedPassedIndex === routeSegIndex) {
-            const last = passedPath[passedPath.length - 1];
-            try {
-                const distToLast = calculateDistanceBetweenPoints(
-                    Array.isArray(last) ? last : [last.lng, last.lat],
-                    Array.isArray(routePoint) ? routePoint : [routePoint.lng, routePoint.lat]
-                );
-                if (!isNaN(distToLast) && distToLast > 0.05) { // >5cm 认为不同点
-                    passedPath.push(routePoint);
+
+    if (hasReachedStart && typeof navigationStartIndex === 'number' && navigationStartIndex >= 0) {
+        // ====== 新增：检测是否到达途径点并开始新的一段（回头检测）======
+        // 找到当前应该属于哪一段（基于已访问的途径点）
+        let currentSegmentStartIdx = navigationStartIndex; // 默认从导航起点开始
+
+        if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0 && visitedWaypoints.size > 0) {
+            // 找到所有已访问的途径点，选择索引最大的作为当前段起点
+            // 这样即使回头（当前索引 < 途径点索引），也能正确识别属于哪一段
+            let lastVisitedWaypointIdx = -1;
+            let lastVisitedWaypointName = '';
+
+            for (const w of waypointIndexMap) {
+                if (w && visitedWaypoints.has(w.name) && typeof w.index === 'number') {
+                    if (w.index > lastVisitedWaypointIdx) {
+                        lastVisitedWaypointIdx = w.index;
+                        lastVisitedWaypointName = w.name;
+                    }
                 }
-            } catch (e) {
-                // 回退：直接追加
-                passedPath.push(routePoint);
+            }
+
+            // 如果找到了已访问的途径点，从该点重新开始灰色路线
+            if (lastVisitedWaypointIdx >= 0) {
+                currentSegmentStartIdx = lastVisitedWaypointIdx;
+                console.log('【回头检测】从途径点"' + lastVisitedWaypointName + '"（索引', lastVisitedWaypointIdx, '）重新开始灰色路线');
             }
         }
-        
-        console.log('【灰色路线】完整显示：从起点（索引0）到已确认点（索引', confirmedPassedIndex, '），共', passedPath.length, '个点');
+
+        // 更新最远索引：在当前段内，只增不减
+        // 但如果段的起点变了（到达新途径点），maxPassedSegIndex 会被重置为新起点
+        if (onRoute) {
+            // 如果当前段起点变化了（说明到达了新途径点），重置 maxPassedSegIndex
+            if (currentSegmentStartIdx > navigationStartIndex && currentSegmentStartIdx !== maxPassedSegIndex) {
+                maxPassedSegIndex = currentSegmentStartIdx;
+                console.log('【段切换】重置 maxPassedSegIndex 为', maxPassedSegIndex);
+            }
+
+            // 在当前段内更新最远索引
+            if (routeSegIndex > maxPassedSegIndex) {
+                maxPassedSegIndex = routeSegIndex;
+            }
+        }
+
+        // 导航已开始：灰色路线 = 从当前段起点到已走过的最远索引
+        const startIdx = Math.max(0, currentSegmentStartIdx);
+        const endIdx = Math.max(startIdx, maxPassedSegIndex);
+
+        // 构建灰色路径：从当前段起点到最远索引
+        passedPath = fullPath.slice(startIdx, endIdx + 1);
+
+        console.log('【灰色路线】从索引', startIdx, '到索引', endIdx, '，共', passedPath.length, '个点，当前索引', routeSegIndex);
     } else {
-        // 导航开始前或还没有确认走过任何点
+        // 导航尚未开始
         passedPath = [];
-        console.log('【灰色路线】尚未开始或无已走路径');
+        console.log('【灰色路线】尚未到达起点');
     }
 
     // 构建剩余路径（绿色）- 【改进】仅显示到下一个未到达的目标点
@@ -5116,21 +5301,23 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
 
     console.log('【分段显示】当前目标索引:', legEndIndex, '（从', routeSegIndex, '开始）');
 
-    // ====== 修复：绿色路线基于已确认的最远点，不受GPS乱跳影响 ======
-    // 使用maxPassedSegIndex（已确认走过的最远点）而不是routeSegIndex（实时投影点）
-    // 这样绿色路线只会缩短，不会因为GPS误差而乱跳
-    // 注意：confirmedPassedIndex 已在上面灰色路线部分声明
-    const greenStartIndex = confirmedPassedIndex + 1; // 绿色路线从已确认点的下一个点开始
+    // ====== 修复：基于索引点的绿色路线逻辑 ======
+    // 绿色路线 = 从当前索引的下一个点到当前分段的终点
+    // 不使用投影点，完全基于索引
+
+    // 绿色路线起点：当前索引的下一个点（因为当前索引已经在灰色路线里了）
+    // 绿色路线终点：当前分段的目标点（下一个途径点或最终终点）
+    const greenStartIndex = Math.max(0, maxPassedSegIndex + 1); // 从已走过的下一个点开始
     const greenEndIndex = Math.min(legEndIndex + 1, fullPath.length);
 
     if (greenStartIndex < greenEndIndex) {
-        // 绿色路线 = 从已确认点到目标点的KML路径（静态，不受GPS乱跳影响）
+        // 绿色路线 = 从已走过的下一个点到目标点的路径
         remainingPath = fullPath.slice(greenStartIndex, greenEndIndex);
-        console.log('【绿色路线】稳定显示：从索引', greenStartIndex, '到', greenEndIndex - 1, '，共', remainingPath.length, '个点');
+        console.log('【绿色路线】从索引', greenStartIndex, '到', greenEndIndex - 1, '，共', remainingPath.length, '个点');
     } else {
         // 已经到达或超过目标点
-        remainingPath = [fullPath[Math.min(legEndIndex, fullPath.length - 1)]];
-        console.log('【绿色路线】已到达目标点附近');
+        remainingPath = [];
+        console.log('【绿色路线】已到达目标点');
     }
 
     console.log('路径状态:', {
@@ -5213,26 +5400,50 @@ function projectPointOntoPathMeters(point, path) {
     return best;
 }
 
-// ====== 改进版：带方向性约束的投影函数（避免平行线吸附错误） ======
+// ====== 改进版：带方向性约束的投影函数（动态窗口 + 回退机制） ======
 // 该函数在吸附时，限制搜索范围在上次投影点附近，防止跳到平行的其他线路
+// 如果在小窗口内找不到好的投影，自动扩大窗口或全局搜索
 function projectPointOntoPathMetersWithDirectionality(point, path, lastProjection) {
     if (!path || path.length < 2 || !point) return null;
 
     const p = normalizeLngLat(point);
-    let best = null;
 
-    // 确定搜索范围：以上次投影点为中心，±N 个路径索引内搜索
-    // 这样可以防止用户偏离当前路段太远时才投影到其他平行线路
-    let searchStart = 0;
-    let searchEnd = path.length - 2;
-
+    // ====== 尝试1: 小窗口搜索（±8索引）======
+    let result = null;
     if (lastProjection && typeof lastProjection.index === 'number') {
-        const searchWindow = 8;  // 搜索窗口大小：±8个路径索引
-        searchStart = Math.max(0, lastProjection.index - searchWindow);
-        searchEnd = Math.min(path.length - 2, lastProjection.index + searchWindow);
+        result = searchInWindowRange(p, path, lastProjection.index, 8);
+
+        // 检查结果质量：如果距离太远（>5米），说明可能GPS漂移了
+        if (result && result.distance <= 5) {
+            console.log('【投影】小窗口成功，索引', result.index, '距离', result.distance.toFixed(2), 'm');
+            return result;
+        }
     }
 
-    // 在限制范围内搜索最近的投影点
+    // ====== 尝试2: 中等窗口搜索（±20索引）======
+    if (lastProjection && typeof lastProjection.index === 'number') {
+        result = searchInWindowRange(p, path, lastProjection.index, 20);
+
+        if (result && result.distance <= 10) {
+            console.log('【投影】中等窗口成功，索引', result.index, '距离', result.distance.toFixed(2), 'm');
+            return result;
+        }
+    }
+
+    // ====== 尝试3: 全局搜索（回退方案）======
+    result = projectPointOntoPathMeters(p, path);
+    if (result) {
+        console.log('【投影】全局搜索，索引', result.index, '距离', result.distance.toFixed(2), 'm');
+    }
+    return result;
+}
+
+// 辅助函数：在指定窗口范围内搜索最佳投影点
+function searchInWindowRange(point, path, centerIndex, windowSize) {
+    const searchStart = Math.max(0, centerIndex - windowSize);
+    const searchEnd = Math.min(path.length - 2, centerIndex + windowSize);
+
+    let best = null;
     for (let i = searchStart; i <= searchEnd; i++) {
         const a = normalizeLngLat(path[i]);
         const b = normalizeLngLat(path[i + 1]);
@@ -5242,17 +5453,16 @@ function projectPointOntoPathMetersWithDirectionality(point, path, lastProjectio
 
         let t = 0;
         if (len2 > 0) {
-            t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len2;
+            t = ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / len2;
             t = Math.max(0, Math.min(1, t));
         }
         const proj = [a[0] + t * dx, a[1] + t * dy];
-        const dist = calculateDistanceBetweenPoints(p, proj);
+        const dist = calculateDistanceBetweenPoints(point, proj);
 
         if (!best || dist < best.distance) {
             best = { index: i, t, projected: proj, distance: dist };
         }
     }
-
     return best;
 }
 
