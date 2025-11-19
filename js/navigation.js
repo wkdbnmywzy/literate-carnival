@@ -4718,10 +4718,28 @@ function startRealNavigationTracking() {
             const distIsZero = Math.round(distToEnd) === 0 || Math.round(remainRouteDist) === 0;
 
             if (hasReachedStart && (distValid || remainDistValid || distIsZero)) {
-                console.log('到达终点 (直线距离:', distToEnd.toFixed(2), '米, 剩余路网距离:', remainRouteDist.toFixed(2), '米)');
-                finishNavigation();
-                // 到达后停止持续定位
-                stopRealNavigationTracking();
+                // 新增逻辑：仅当所有途径点都已到达才允许结束导航
+                let remainingWaypoints = [];
+                try {
+                    if (routeData && Array.isArray(routeData.waypoints) && routeData.waypoints.length > 0) {
+                        remainingWaypoints = routeData.waypoints.filter(wp => wp && wp.name && !visitedWaypoints.has(wp.name));
+                    }
+                } catch (e) {
+                    console.warn('计算剩余途径点失败:', e);
+                }
+
+                if (remainingWaypoints.length === 0) {
+                    console.log('到达终点 (直线距离:', distToEnd.toFixed(2), '米, 剩余路网距离:', remainRouteDist.toFixed(2), '米)，且所有途径点已完成，结束导航');
+                    finishNavigation();
+                    // 到达后停止持续定位
+                    stopRealNavigationTracking();
+                } else {
+                    // 还有未到达的途径点，不能结束导航，给出提示
+                    const nextWpName = remainingWaypoints[0].name || '后续途径点';
+                    console.log('已接近终点但仍有未达到途径点，阻止结束导航。剩余数量:', remainingWaypoints.length, '下一个:', nextWpName);
+                    try { speakNavigation(`仍有未完成的途径点，请前往 ${nextWpName}`); } catch (e) {}
+                    // 刷新提示卡片（不调用 finishNavigation）
+                }
             }
         },
         err => {
