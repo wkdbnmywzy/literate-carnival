@@ -1299,32 +1299,30 @@ function addWaypointMarkers(waypoints) {
         
         // 如果只有1个途径点，使用原图标；如果有多个，使用带编号的自定义标记
         if (waypointCount === 1) {
-            // 单个途径点：使用原图标
-            const icon = new AMap.Icon({
-                size: new AMap.Size(26, 34),
-                image: 'images/工地数字导航小程序切图/司机/2X/地图icon/途径点.png',
-                imageSize: new AMap.Size(26, 34)
-            });
-            
+            // 单个途径点：使用自适应HTML，文字为“途径点”
+            const singleContentInfo = createSingleWaypointMarkerHTML();
+            const adaptiveOffsetX = -singleContentInfo.width / 2; // 居中
+
             marker = new AMap.Marker({
                 position: pos,
-                icon: icon,
-                offset: new AMap.Pixel(-13, -34),
+                content: singleContentInfo.element,
+                offset: new AMap.Pixel(adaptiveOffsetX, -34),
                 zIndex: 99,
                 map: navigationMap,
-                title: wp?.name || '途经点'
+                title: wp?.name || '途径点'
             });
         } else {
-            // 多个途径点：使用自定义HTML显示编号
-            const markerContent = createWaypointMarkerHTML(index + 1);
-            
+            // 多个途径点：使用自定义HTML显示编号（容器宽度自适应文字）
+            const markerContentInfo = createWaypointMarkerHTML(index + 1);
+            const adaptiveOffsetX = -markerContentInfo.width / 2; // 居中对齐
+
             marker = new AMap.Marker({
                 position: pos,
-                content: markerContent,
-                offset: new AMap.Pixel(-13, -34),
+                content: markerContentInfo.element,
+                offset: new AMap.Pixel(adaptiveOffsetX, -34),
                 zIndex: 99,
                 map: navigationMap,
-                title: `途${index + 1}: ${wp?.name || '途经点'}`
+                title: `途径点${index + 1}: ${wp?.name || '途径点'}`
             });
         }
         
@@ -1334,25 +1332,34 @@ function addWaypointMarkers(waypoints) {
 
 // 创建途径点标记的HTML内容（带编号，使用无字图标）
 function createWaypointMarkerHTML(number) {
+    const labelText = `途径点${number}`;
+
+    // 计算文字宽度（使用 Canvas 测量，避免未挂载 DOM 时取不到 offsetWidth）
+    let textWidth = 0;
+    try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = 'bold 10px "Microsoft YaHei","SimHei",Arial,sans-serif';
+        textWidth = ctx.measureText(labelText).width;
+    } catch (e) {
+        textWidth = labelText.length * 10 * 0.55; // 兜底估算
+    }
+
+    // 基础图标宽度 26px，左右加 8px 内边距自适应
+    const adaptiveWidth = Math.max(26, Math.ceil(textWidth) + 8);
+    const baseHeight = 34;
+
     const div = document.createElement('div');
-    div.style.cssText = `
-        position: relative;
-        width: 26px;
-        height: 34px;
-    `;
-    
-    // 途径点图标（无字版本）
+    div.style.cssText = `position: relative; width: ${adaptiveWidth}px; height: ${baseHeight}px;`;
+
+    // 背景图按新的宽度等比拉伸（高度保持）
     const img = document.createElement('img');
     img.src = 'images/工地数字导航小程序切图/司机/2X/地图icon/途径点1.png';
-    img.style.cssText = `
-        width: 26px;
-        height: 34px;
-        display: block;
-    `;
-    
-    // 白色文字标签："途1"、"途2"等（显示在橙色图标区域内）
+    img.style.cssText = `width: ${adaptiveWidth}px; height: ${baseHeight}px; display: block;`;
+
+    // 文字居中，不换行
     const numberLabel = document.createElement('div');
-    numberLabel.textContent = `途${number}`;
+    numberLabel.textContent = labelText;
     numberLabel.style.cssText = `
         position: absolute;
         top: 7px;
@@ -1368,11 +1375,56 @@ function createWaypointMarkerHTML(number) {
         white-space: nowrap;
         text-shadow: 0 0 2px rgba(0,0,0,0.3);
     `;
-    
+
     div.appendChild(img);
     div.appendChild(numberLabel);
-    
-    return div;
+
+    return { element: div, width: adaptiveWidth, height: baseHeight };
+}
+
+// 单途径点自适应标记（文字：途径点）
+function createSingleWaypointMarkerHTML() {
+    const labelText = '途径点';
+    let textWidth = 0;
+    try {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        ctx.font = 'bold 10px "Microsoft YaHei","SimHei",Arial,sans-serif';
+        textWidth = ctx.measureText(labelText).width;
+    } catch (e) {
+        textWidth = labelText.length * 10 * 0.55;
+    }
+
+    const adaptiveWidth = Math.max(26, Math.ceil(textWidth) + 8);
+    const baseHeight = 34;
+    const div = document.createElement('div');
+    div.style.cssText = `position: relative; width: ${adaptiveWidth}px; height: ${baseHeight}px;`;
+
+    const img = document.createElement('img');
+    img.src = 'images/工地数字导航小程序切图/司机/2X/地图icon/途径点1.png';
+    img.style.cssText = `width: ${adaptiveWidth}px; height: ${baseHeight}px; display: block;`;
+
+    const numberLabel = document.createElement('div');
+    numberLabel.textContent = labelText;
+    numberLabel.style.cssText = `
+        position: absolute;
+        top: 7px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: #FFFFFF;
+        font-size: 10px;
+        font-weight: bold;
+        font-family: 'Microsoft YaHei', 'SimHei', Arial, sans-serif;
+        pointer-events: none;
+        line-height: 1;
+        z-index: 2;
+        white-space: nowrap;
+        text-shadow: 0 0 2px rgba(0,0,0,0.3);
+    `;
+
+    div.appendChild(img);
+    div.appendChild(numberLabel);
+    return { element: div, width: adaptiveWidth, height: baseHeight };
 }
 
 // 解析点对象到 [lng, lat]
@@ -2105,12 +2157,18 @@ function updateDestinationInfo() {
         }
     }
 
-    // 构建标签文本：起点/途径点N/终点
+    // 构建标签文本：起点 / 途径点 或 途径点N / 终点
+    const totalWaypoints = Array.isArray(routeData.waypoints) ? routeData.waypoints.length : 0;
     let labelText = '';
     if (targetType === 'start') {
         labelText = '起点';
     } else if (targetType === 'waypoint') {
-        labelText = '途径点' + (waypointIndex >= 0 ? (waypointIndex + 1) : '');
+        if (totalWaypoints === 1) {
+            // 仅有一个途径点时不加编号
+            labelText = '途径点';
+        } else {
+            labelText = '途径点' + (waypointIndex >= 0 ? (waypointIndex + 1) : '');
+        }
     } else {
         labelText = '终点';
     }
