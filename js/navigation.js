@@ -4155,9 +4155,64 @@ function startRealNavigationTracking() {
     // 【调试信息】GPS配置
     console.log('【导航GPS配置】');
     console.log('  - 高精度模式: 启用');
-    console.log('  - 缓存模式: 禁用（每次都获取最新）');
     console.log('  - 超时时间: 5秒');
-    console.log('  - 实际频率: 取决于设备GPS模块和浏览器（通常0.5-2秒/次）');
+    console.log('  - 缓存策略: 不使用缓存（maximumAge=0）');
+
+    // ====== 新增：开始导航时立即获取当前GPS位置，避免图标停留在旧位置 ======
+    console.log('【立即定位】开始导航，立即获取当前GPS位置...');
+    navigator.geolocation.getCurrentPosition(
+        function(position) {
+            console.log('【立即定位】成功获取初始位置:', {
+                经度: position.coords.longitude,
+                纬度: position.coords.latitude,
+                精度: position.coords.accuracy + '米'
+            });
+
+            // 立即处理这个位置（使用与watchPosition相同的处理逻辑）
+            let lng = position.coords.longitude;
+            let lat = position.coords.latitude;
+
+            // WGS84转GCJ-02
+            try {
+                if (typeof wgs84ToGcj02 === 'function') {
+                    const converted = wgs84ToGcj02(lng, lat);
+                    if (Array.isArray(converted) && converted.length === 2) {
+                        lng = converted[0];
+                        lat = converted[1];
+                    }
+                }
+            } catch (e) {}
+
+            const curr = [lng, lat];
+            const accuracy = position.coords.accuracy || 10;
+
+            // GPS过滤
+            const validCheck = isGPSDataValid(curr, accuracy);
+            if (!validCheck.isValid) {
+                console.warn('【立即定位】初始位置无效:', validCheck.reason);
+                return;
+            }
+
+            // 记录为有效位置
+            addValidGPSPosition(curr);
+            lastGpsPos = curr;
+            currentAccuracy = accuracy;
+            lastGpsUpdateTime = Date.now();
+
+            // 更新精度圈（如果需要）
+            updateAccuracyCircle(curr, accuracy);
+
+            console.log('【立即定位】初始位置已接受，等待watchPosition继续更新');
+        },
+        function(error) {
+            console.warn('【立即定位】获取初始位置失败:', error.message);
+            console.log('【立即定位】将等待watchPosition提供位置');
+        },
+        options  // 使用相同的高精度配置
+    );
+
+    // ====== 持续监听GPS位置变化 ======
+    console.log('【持续监听】启动watchPosition，实时跟踪GPS位置变化');
 
     // 在用户操作开始导航时，尝试开启设备方向监听（iOS 需权限）
     tryStartDeviceOrientationNav();
@@ -5172,7 +5227,15 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
     // 是否强制要求到达起点附近再开始
     // 只有在已到达起点后，才记录和显示偏离轨迹
     if (!onRoute && hasReachedStart) {
-        // 添加当前位置到偏离路径（使用实际GPS位置，不是投影点）
+        // ====== 偏离路径处理：黄色虚线从偏离点到当前GPS位置 ======
+
+        // 第一次偏离：记录偏离点（最后能吸附的位置）
+        if (deviatedPath.length === 0 && routePoint) {
+            deviatedPath.push(routePoint);  // 偏离起点：最后的吸附位置
+            console.log('【偏离检测】开始偏离，记录偏离起点');
+        }
+
+        // 添加当前GPS位置到偏离路径
         if (deviatedPath.length === 0 ||
             calculateDistanceBetweenPoints(currentPos, deviatedPath[deviatedPath.length - 1]) > 2) {
             // 只有当移动超过2米才添加新点，避免过于密集
@@ -5193,21 +5256,45 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
                     zIndex: 115, // 在灰色路径之上，绿色路径之下
                     map: navigationMap
                 });
-                console.log('创建黄色偏离路径，长度:', deviatedPath.length, '点');
+                console.log('【偏离路径】创建黄色虚线，从偏离点到当前位置，共', deviatedPath.length, '个点');
             } else {
                 deviatedRoutePolyline.setPath(deviatedPath);
-                console.log('更新黄色偏离路径，长度:', deviatedPath.length, '点');
+                console.log('【偏离路径】更新黄色虚线，长度:', deviatedPath.length, '个点');
             }
         }
 
-        // 偏离时：保留已走灰线，体现完整历史，不再根据"trail/history"模式隐藏
+        // 偏离时：保留灰色和绿色路线，不做改动
+        console.log('【偏离状态】保留灰色/绿色路线，显示黄色偏离轨迹');
     } else {
-        // 回到路线上时，清除偏离路径
-        if (deviatedRoutePolyline) {
-            navigationMap.remove(deviatedRoutePolyline);
-            deviatedRoutePolyline = null;
+        // ====== 回到路线上时的处理 ======
+        // 1. 清除黄色偏离路径（但不删除，仍然显示历史偏离轨迹）
+        // 注释：根据用户需求，保留黄色路径显示
+        // if (deviatedRoutePolyline) {
+        //     navigationMap.remove(deviatedRoutePolyline);
+        //     deviatedRoutePolyline = null;
+        // }
+
+        // 2. 如果刚从偏离状态回来，需要补充灰色路线
+        if (deviatedPath.length > 0) {
+            console.log('【回到路线】从偏离状态恢复，补充灰色路线');
+
+            // 找到偏离前的最后索引（灰色路线的终点）
+            const lastPassedIndex = maxPassedSegIndex;
+
+            // 当前回到路线的索引
+            const currentIndex = routeSegIndex;
+
+            // 如果当前索引大于偏离前的索引，说明在偏离期间"跳过"了一些路径
+            if (currentIndex > lastPassedIndex) {
+                console.log('【回到路线】补充索引', lastPassedIndex, '到', currentIndex, '的灰色路线（沿KML规划路线）');
+                // 更新 maxPassedSegIndex，让灰色路线自动补充到当前位置
+                maxPassedSegIndex = currentIndex;
+            }
         }
+
+        // 3. 清空偏离路径数组（但不清除已绘制的黄色线，保留历史）
         deviatedPath = [];
+        console.log('【回到路线】偏离路径数组已清空，黄色路径保留显示');
     }
 
     // ====== 修复：基于索引点的灰色路线逻辑（支持回头路段）======
@@ -5246,13 +5333,15 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         // 更新最远索引：在当前段内，只增不减
         // 但如果段的起点变了（到达新途径点），maxPassedSegIndex 会被重置为新起点
         if (onRoute) {
-            // 如果当前段起点变化了（说明到达了新途径点），重置 maxPassedSegIndex
-            if (currentSegmentStartIdx > navigationStartIndex && currentSegmentStartIdx !== maxPassedSegIndex) {
+            // ====== 改进：如果当前段起点变化了（说明到达了新途径点），重置 maxPassedSegIndex ======
+            // 不管索引大小关系，只要段起点不等于当前 maxPassedSegIndex，就说明切换了新段
+            // 这样可以正确处理掉头场景（途径点索引可能小于之前的索引）
+            if (currentSegmentStartIdx !== maxPassedSegIndex) {
                 maxPassedSegIndex = currentSegmentStartIdx;
-                console.log('【段切换】重置 maxPassedSegIndex 为', maxPassedSegIndex);
+                console.log('【段切换】重置 maxPassedSegIndex 为', maxPassedSegIndex, '（当前段起点:', currentSegmentStartIdx, '）');
             }
 
-            // 在当前段内更新最远索引
+            // 在当前段内更新最远索引（只增不减）
             if (routeSegIndex > maxPassedSegIndex) {
                 maxPassedSegIndex = routeSegIndex;
             }
@@ -5265,7 +5354,26 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         // 构建灰色路径：从当前段起点到最远索引
         passedPath = fullPath.slice(startIdx, endIdx + 1);
 
-        console.log('【灰色路线】从索引', startIdx, '到索引', endIdx, '，共', passedPath.length, '个点，当前索引', routeSegIndex);
+        // ====== 新增：将车辆图标的吸附位置（投影点）追加到灰色路线末尾 ======
+        // 这样灰色路线会精确延伸到车辆图标位置，沿着KML规划路线实现无缝衔接
+        // 改进：始终添加投影点以确保沿KML路径的视觉连续性，而不是基于距离判断
+        if (routePoint && passedPath.length > 0) {
+            const lastPoint = passedPath[passedPath.length - 1];
+            const distToLast = calculateDistanceBetweenPoints(
+                Array.isArray(lastPoint) ? lastPoint : [lastPoint.lng, lastPoint.lat],
+                Array.isArray(routePoint) ? routePoint : [routePoint.lng, routePoint.lat]
+            );
+            // 始终追加投影点，确保灰色路线沿着KML规划路线延伸到车辆图标位置
+            // 即使距离很近，也要保证路径沿着KML轨迹连接
+            if (!isNaN(distToLast) && distToLast > 0.1) { // 仅过滤完全重合的点（0.1米阈值）
+                passedPath.push(routePoint);
+                console.log('【灰色路线】从索引', startIdx, '到索引', endIdx, '并沿KML路线延伸到车辆吸附位置（距离', distToLast.toFixed(2), 'm），共', passedPath.length, '个点');
+            } else {
+                console.log('【灰色路线】从索引', startIdx, '到索引', endIdx, '，共', passedPath.length, '个点，投影点与最后索引点重合');
+            }
+        } else {
+            console.log('【灰色路线】从索引', startIdx, '到索引', endIdx, '，共', passedPath.length, '个点，当前索引', routeSegIndex);
+        }
     } else {
         // 导航尚未开始
         passedPath = [];
@@ -5302,18 +5410,40 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
     console.log('【分段显示】当前目标索引:', legEndIndex, '（从', routeSegIndex, '开始）');
 
     // ====== 修复：基于索引点的绿色路线逻辑 ======
-    // 绿色路线 = 从当前索引的下一个点到当前分段的终点
-    // 不使用投影点，完全基于索引
+    // 绿色路线 = 从车辆吸附位置到当前分段的终点
+    // 使用车辆图标的投影点作为起点，实现与灰色路线的无缝衔接
 
-    // 绿色路线起点：当前索引的下一个点（因为当前索引已经在灰色路线里了）
+    // 绿色路线起点：车辆图标的吸附位置（投影点）
     // 绿色路线终点：当前分段的目标点（下一个途径点或最终终点）
     const greenStartIndex = Math.max(0, maxPassedSegIndex + 1); // 从已走过的下一个点开始
     const greenEndIndex = Math.min(legEndIndex + 1, fullPath.length);
 
     if (greenStartIndex < greenEndIndex) {
-        // 绿色路线 = 从已走过的下一个点到目标点的路径
-        remainingPath = fullPath.slice(greenStartIndex, greenEndIndex);
-        console.log('【绿色路线】从索引', greenStartIndex, '到', greenEndIndex - 1, '，共', remainingPath.length, '个点');
+        // 绿色路线 = [车辆吸附位置] + [从下一个索引点到目标点的路径]
+        const pathFromNextIndex = fullPath.slice(greenStartIndex, greenEndIndex);
+
+        // ====== 新增：将车辆图标的吸附位置（投影点）作为绿色路线起点 ======
+        // 这样绿色路线会从车辆图标位置开始，沿着KML规划路线与灰色路线精确衔接
+        // 改进：始终添加投影点以确保沿KML路径的视觉连续性，而不是基于距离判断
+        if (routePoint && pathFromNextIndex.length > 0) {
+            const firstPoint = pathFromNextIndex[0];
+            const distToFirst = calculateDistanceBetweenPoints(
+                Array.isArray(routePoint) ? routePoint : [routePoint.lng, routePoint.lat],
+                Array.isArray(firstPoint) ? firstPoint : [firstPoint.lng, firstPoint.lat]
+            );
+            // 始终在前面插入投影点，确保绿色路线从车辆图标沿着KML规划路线开始
+            // 即使距离很近，也要保证路径沿着KML轨迹连接
+            if (!isNaN(distToFirst) && distToFirst > 0.1) { // 仅过滤完全重合的点（0.1米阈值）
+                remainingPath = [routePoint].concat(pathFromNextIndex);
+                console.log('【绿色路线】从车辆吸附位置沿KML路线到索引', greenEndIndex - 1, '（距离', distToFirst.toFixed(2), 'm），共', remainingPath.length, '个点');
+            } else {
+                remainingPath = pathFromNextIndex;
+                console.log('【绿色路线】从索引', greenStartIndex, '到', greenEndIndex - 1, '，共', remainingPath.length, '个点，投影点与首个索引点重合');
+            }
+        } else {
+            remainingPath = pathFromNextIndex;
+            console.log('【绿色路线】从索引', greenStartIndex, '到', greenEndIndex - 1, '，共', remainingPath.length, '个点');
+        }
     } else {
         // 已经到达或超过目标点
         remainingPath = [];
