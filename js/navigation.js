@@ -3608,17 +3608,9 @@ function startSimulatedNavigation() {
         userMarker = null;
     }
 
-    // 开始导航后车辆图标：宽度固定为绿色路线线宽的 2 倍（用户需求：比路网宽一倍）
-    // 若提供 MapConfig.navigationConfig.vehicleIconScale，则使用该倍数；否则默认 2
-    let vehicleScale = 2;
-    try {
-        if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.vehicleIconScale === 'number') {
-            vehicleScale = MapConfig.navigationConfig.vehicleIconScale;
-        }
-    } catch (e) {}
-    const baseWidth = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16;
-    let w = baseWidth * vehicleScale;
-    let h = w; // 正方尺寸
+    // 开始导航后车辆图标：固定尺寸 31x62 像素
+    let w = 31;
+    let h = 62;
     // 指定临时车图标路径
     let iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
 
@@ -4267,16 +4259,9 @@ function startRealNavigationTracking() {
 
             // 初始化标记与灰色路径
             if (!userMarker) {
-                // 导航阶段车辆图标：宽度为绿色路线线宽的 2 倍（需求：比路网宽一倍）
-                let vehicleScale = 2;
-                try {
-                    if (MapConfig && MapConfig.navigationConfig && typeof MapConfig.navigationConfig.vehicleIconScale === 'number') {
-                        vehicleScale = MapConfig.navigationConfig.vehicleIconScale;
-                    }
-                } catch (e) {}
-                const baseWidth = (typeof routeStrokeWeight === 'number' && routeStrokeWeight > 0) ? routeStrokeWeight : 16;
-                let w = baseWidth * vehicleScale;
-                let h = w; // 高度取同值
+                // 导航阶段车辆图标：固定尺寸 31x62 像素
+                let w = 31;
+                let h = 62;
                 const iconImage = 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png';
 
                 console.log('导航中创建我的位置标记, 图标路径:', iconImage, '尺寸:', w, 'x', h);
