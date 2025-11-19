@@ -1864,6 +1864,7 @@ let nextTurnIndex = -1; // 下一个转向点的索引
 let turnSequence = [];
 let turnSeqPtr = 0; // 指向未通过的下一个转向在 turnSequence 中的下标
 let hasReachedStart = false; // 是否已到达起点附近并正式开始沿路网导航
+let navigationStartIndex = 0; // ====== 新增：记录导航真正开始时的路径索引 ======
 // 通过一个转向后，为避免紧邻路口连跳，短暂抑制下一条指示（时间门槛）
 let postTurnGateUntilTime = 0;
 
@@ -2000,6 +2001,11 @@ function switchToNextTarget() {
     if (!routeData) return;
 
     const currentType = currentTargetPoint ? currentTargetPoint.type : 'start';
+    
+    // ====== 切换路段时不重置maxPassedSegIndex，保持灰色路线完整 ======
+    // maxPassedSegIndex 保持累积，显示完整已走路径
+    // hasReachedStart 保持true，继续正常导航
+    console.log('【路段切换】保持导航状态，灰色路线继续累积');
 
     if (currentType === 'start') {
         // 从起点切换到第一个途径点或终点
@@ -4328,7 +4334,9 @@ function startRealNavigationTracking() {
                     if (distToStart <= (startRebaseThresholdMeters || 25)) {
                         hasReachedStart = true;
                         onRoute = true;
-                        console.log('到达起点附近，开始沿路网导航');
+                        // ====== 记录导航起始索引 ======
+                        navigationStartIndex = Math.max(0, segIndex);
+                        console.log('到达起点附近，开始沿路网导航，起始索引:', navigationStartIndex);
 
                         // 到达起点，切换到下一个目标（第一个途径点或终点）
                         switchToNextTarget();
@@ -5050,23 +5058,33 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
 
     // 构建已走过的路径（灰色）：从规划起点到当前投影点的“整段已走路线”
     let passedPath = [];
-    if (routePoint && routeSegIndex >= 0) {
-        // 取起点到当前段的全部节点
-        passedPath = fullPath.slice(0, routeSegIndex + 1);
+    const confirmedPassedIndex = Math.max(0, maxPassedSegIndex);
+    
+    if (hasReachedStart && confirmedPassedIndex >= 0) {
+        // 导航开始后，显示从起点到已确认的最远点的完整路径
+        passedPath = fullPath.slice(0, confirmedPassedIndex + 1);
         // 若投影点不等于该段端点，补上投影点，保证灰线精确到当前位置
-        const last = passedPath[passedPath.length - 1];
-        try {
-            const distToLast = calculateDistanceBetweenPoints(
-                Array.isArray(last) ? last : [last.lng, last.lat],
-                Array.isArray(routePoint) ? routePoint : [routePoint.lng, routePoint.lat]
-            );
-            if (!isNaN(distToLast) && distToLast > 0.05) { // >5cm 认为不同点
+        if (routePoint && confirmedPassedIndex === routeSegIndex) {
+            const last = passedPath[passedPath.length - 1];
+            try {
+                const distToLast = calculateDistanceBetweenPoints(
+                    Array.isArray(last) ? last : [last.lng, last.lat],
+                    Array.isArray(routePoint) ? routePoint : [routePoint.lng, routePoint.lat]
+                );
+                if (!isNaN(distToLast) && distToLast > 0.05) { // >5cm 认为不同点
+                    passedPath.push(routePoint);
+                }
+            } catch (e) {
+                // 回退：直接追加
                 passedPath.push(routePoint);
             }
-        } catch (e) {
-            // 回退：直接追加
-            passedPath.push(routePoint);
         }
+        
+        console.log('【灰色路线】完整显示：从起点（索引0）到已确认点（索引', confirmedPassedIndex, '），共', passedPath.length, '个点');
+    } else {
+        // 导航开始前或还没有确认走过任何点
+        passedPath = [];
+        console.log('【灰色路线】尚未开始或无已走路径');
     }
 
     // 构建剩余路径（绿色）- 【改进】仅显示到下一个未到达的目标点
@@ -5098,27 +5116,21 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
 
     console.log('【分段显示】当前目标索引:', legEndIndex, '（从', routeSegIndex, '开始）');
 
-    if (onRoute) {
-        // 剩余路径 = [投影点] + [该段终点...legEndIndex的所有节点]
-        const sliceEnd = Math.min(legEndIndex + 1, fullPath.length);
-        remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1), sliceEnd));
-        if (remainingPath.length < 2) {
-            remainingPath = [routePoint, fullPath[legEndIndex]];
-        }
+    // ====== 修复：绿色路线基于已确认的最远点，不受GPS乱跳影响 ======
+    // 使用maxPassedSegIndex（已确认走过的最远点）而不是routeSegIndex（实时投影点）
+    // 这样绿色路线只会缩短，不会因为GPS误差而乱跳
+    // 注意：confirmedPassedIndex 已在上面灰色路线部分声明
+    const greenStartIndex = confirmedPassedIndex + 1; // 绿色路线从已确认点的下一个点开始
+    const greenEndIndex = Math.min(legEndIndex + 1, fullPath.length);
+
+    if (greenStartIndex < greenEndIndex) {
+        // 绿色路线 = 从已确认点到目标点的KML路径（静态，不受GPS乱跳影响）
+        remainingPath = fullPath.slice(greenStartIndex, greenEndIndex);
+        console.log('【绿色路线】稳定显示：从索引', greenStartIndex, '到', greenEndIndex - 1, '，共', remainingPath.length, '个点');
     } else {
-        // 偏离路径时：从投影点画到legEndIndex
-        if (routePoint) {
-            const sliceEnd = Math.min(legEndIndex + 1, fullPath.length);
-            remainingPath = [routePoint].concat(fullPath.slice(Math.min(fullPath.length - 1, routeSegIndex + 1), sliceEnd));
-        } else {
-            // 若无投影点退化为从最近索引处开始
-            const startIdx = Math.max(0, Math.min(fullPath.length - 1, segIndex));
-            const sliceEnd = Math.min(legEndIndex + 1, fullPath.length);
-            remainingPath = [fullPath[startIdx]].concat(fullPath.slice(startIdx + 1, sliceEnd));
-        }
-        if (remainingPath.length < 2 && fullPath.length >= 2) {
-            remainingPath = [fullPath[0], fullPath[legEndIndex]];
-        }
+        // 已经到达或超过目标点
+        remainingPath = [fullPath[Math.min(legEndIndex, fullPath.length - 1)]];
+        console.log('【绿色路线】已到达目标点附近');
     }
 
     console.log('路径状态:', {
