@@ -1943,6 +1943,20 @@ function startNavigationUI() {
     userChosenBranch = -1; // 重置用户分支选择
     lastBranchNotificationTime = 0; // 重置分支提示时间
 
+    // ====== 新增：重新显示所有途径点图标 ======
+    try {
+        if (waypointMarkers && waypointMarkers.length > 0) {
+            waypointMarkers.forEach(marker => {
+                if (marker && typeof marker.show === 'function') {
+                    marker.show();
+                }
+            });
+            console.log('【途径点图标】重新显示所有途径点图标');
+        }
+    } catch (e) {
+        console.warn('重新显示途径点图标失败:', e);
+    }
+
     // 停止导航前的实时位置追踪
     stopRealtimePositionTracking();
 
@@ -5031,6 +5045,19 @@ function markWaypointArrivalIfNeeded(currPos, path) {
             visitedWaypoints.add(w.name);
             console.log('【途径点检测】✓ 到达途径点:', w.name, '(距离:', d.toFixed(2), '米)');
 
+            // ====== 新增：隐藏已访问的途径点图标 ======
+            try {
+                // 找到该途径点在 waypointIndexMap 中的索引
+                const waypointArrayIndex = waypointIndexMap.findIndex(wp => wp && wp.name === w.name);
+                if (waypointArrayIndex >= 0 && waypointMarkers[waypointArrayIndex]) {
+                    // 隐藏对应的图标
+                    waypointMarkers[waypointArrayIndex].hide();
+                    console.log('【途径点图标】隐藏已访问的途径点图标:', w.name);
+                }
+            } catch (e) {
+                console.warn('隐藏途径点图标失败:', e);
+            }
+
             // ====== 新增：重置投影记录，允许下一段全局搜索，避免跨段问题 ======
             lastProjection = null;
             console.log('【途径点检测】重置投影记录，下一段将重新搜索');
@@ -5383,24 +5410,47 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
         let currentSegmentStartIdx = navigationStartIndex; // 默认从导航起点开始
 
         if (Array.isArray(waypointIndexMap) && waypointIndexMap.length > 0 && visitedWaypoints.size > 0) {
-            // 找到所有已访问的途径点，选择索引最大的作为当前段起点
-            // 这样即使回头（当前索引 < 途径点索引），也能正确识别属于哪一段
+            // ====== 改进：只使用导航序列中的途径点作为段起点 ======
+            // 问题：如果途径点3在途径点1→2路上被顺路标记为已访问，
+            // 但导航目标是途径点2，此时不应该用途径点3作为段起点
+            //
+            // 解决：找到当前导航目标之前、在导航序列中的最后一个已访问途径点
             let lastVisitedWaypointIdx = -1;
             let lastVisitedWaypointName = '';
 
-            for (const w of waypointIndexMap) {
-                if (w && visitedWaypoints.has(w.name) && typeof w.index === 'number') {
-                    if (w.index > lastVisitedWaypointIdx) {
-                        lastVisitedWaypointIdx = w.index;
-                        lastVisitedWaypointName = w.name;
+            // 如果当前目标是途径点，找到它在导航序列中的位置
+            let currentTargetWaypointIndex = -1;
+            if (currentTargetPoint && currentTargetPoint.type === 'waypoint') {
+                // 找到当前目标途径点在 waypointIndexMap 中的顺序位置（不是路径索引）
+                for (let i = 0; i < waypointIndexMap.length; i++) {
+                    if (waypointIndexMap[i] && waypointIndexMap[i].name === currentTargetPoint.name) {
+                        currentTargetWaypointIndex = i;
+                        break;
                     }
                 }
             }
 
-            // 如果找到了已访问的途径点，从该点重新开始灰色路线
+            // 遍历所有途径点，找到导航序列中、当前目标之前的最后一个已访问途径点
+            for (let i = 0; i < waypointIndexMap.length; i++) {
+                const w = waypointIndexMap[i];
+                if (!w || !visitedWaypoints.has(w.name) || typeof w.index !== 'number') continue;
+
+                // 如果有当前目标途径点，只考虑它之前的途径点
+                if (currentTargetWaypointIndex >= 0 && i >= currentTargetWaypointIndex) {
+                    continue; // 跳过当前目标及之后的途径点
+                }
+
+                // 在当前目标之前的所有已访问途径点中，选择索引最大的
+                if (w.index > lastVisitedWaypointIdx) {
+                    lastVisitedWaypointIdx = w.index;
+                    lastVisitedWaypointName = w.name;
+                }
+            }
+
+            // 如果找到了符合条件的途径点，从该点重新开始灰色路线
             if (lastVisitedWaypointIdx >= 0) {
                 currentSegmentStartIdx = lastVisitedWaypointIdx;
-                console.log('【回头检测】从途径点"' + lastVisitedWaypointName + '"（索引', lastVisitedWaypointIdx, '）重新开始灰色路线');
+                console.log('【段起点】从途径点"' + lastVisitedWaypointName + '"（索引', lastVisitedWaypointIdx, '）开始灰色路线');
             }
         }
 
@@ -5415,18 +5465,50 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
                 console.log('【段切换】重置 maxPassedSegIndex 为', maxPassedSegIndex, '（当前段起点:', currentSegmentStartIdx, '）');
             }
 
-            // 在当前段内更新最远索引（只增不减）
+            // ====== 改进：在当前段内更新最远索引（只增不减）======
+            // 注意：在掉头场景下，当前索引可能小于段起点，此时不更新 maxPassedSegIndex
+            // 但灰色路线仍然要显示到当前位置
             if (routeSegIndex > maxPassedSegIndex) {
                 maxPassedSegIndex = routeSegIndex;
             }
         }
 
-        // 导航已开始：灰色路线 = 从当前段起点到已走过的最远索引
-        const startIdx = Math.max(0, currentSegmentStartIdx);
-        const endIdx = Math.max(startIdx, maxPassedSegIndex);
+        // ====== 改进：灰色路线逻辑，支持掉头场景并包含之前所有段落 ======
+        // 灰色路线应该显示从导航起点到当前位置的完整路径，包括：
+        // 1. 已完成的段落（起点→途径点1→途径点2→...）
+        // 2. 当前段落（最后途径点→当前位置）
 
-        // 构建灰色路径：从当前段起点到最远索引
-        passedPath = fullPath.slice(startIdx, endIdx + 1);
+        // 当前段起点（最后访问的途径点，或导航起点）
+        const startIdx = Math.max(0, currentSegmentStartIdx);
+
+        // ====== 判断方向：正向前进 vs 掉头返回 ======
+        let currentSegmentPath = [];
+
+        if (routeSegIndex < startIdx) {
+            // 掉头场景：灰色路线从段起点逆向到当前位置
+            // 例如：段起点150 → 当前130，显示 150→149→...→130
+            const reversePath = fullPath.slice(routeSegIndex, startIdx + 1);
+            currentSegmentPath = reversePath.reverse(); // 反转以保持从起点到当前的顺序显示
+            console.log('【掉头场景】当前段灰色路线从索引', startIdx, '逆向到', routeSegIndex, '，共', currentSegmentPath.length, '个点');
+        } else {
+            // 正常前进：灰色路线从段起点到当前位置
+            const endIdx = Math.max(startIdx, routeSegIndex);
+            currentSegmentPath = fullPath.slice(startIdx, endIdx + 1);
+            console.log('【正常前进】当前段灰色路线从索引', startIdx, '到', routeSegIndex, '，共', currentSegmentPath.length, '个点');
+        }
+
+        // ====== 新增：合并之前所有段落的灰色路线 ======
+        // 如果有已访问的途径点，需要包含从导航起点到这些途径点的完整路径
+        if (visitedWaypoints.size > 0 && currentSegmentStartIdx > navigationStartIndex) {
+            // 从导航起点到当前段起点的所有路径
+            const previousSegmentsPath = fullPath.slice(navigationStartIndex, currentSegmentStartIdx + 1);
+            // 合并：之前段落 + 当前段落
+            passedPath = previousSegmentsPath.concat(currentSegmentPath.slice(1)); // slice(1)避免重复当前段起点
+            console.log('【包含之前段落】灰色路线从导航起点', navigationStartIndex, '到当前位置，共', passedPath.length, '个点');
+        } else {
+            // 没有之前段落，直接使用当前段
+            passedPath = currentSegmentPath;
+        }
 
         // ====== 新增：将车辆图标的吸附位置（投影点）追加到灰色路线末尾 ======
         // 这样灰色路线会精确延伸到车辆图标位置，沿着KML规划路线实现无缝衔接
@@ -5487,13 +5569,20 @@ function updatePathSegments(currentPos, fullPath, segIndex, projectionPoint) {
     // 绿色路线 = 从车辆吸附位置到当前分段的终点
     // 使用车辆图标的投影点作为起点，实现与灰色路线的无缝衔接
 
-    // 绿色路线起点：车辆图标的吸附位置（投影点）
-    // 绿色路线终点：当前分段的目标点（下一个途径点或最终终点）
-    const greenStartIndex = Math.max(0, maxPassedSegIndex + 1); // 从已走过的下一个点开始
+    // ====== 关键修复：绿色路线逻辑 ======
+    // routeSegIndex 是投影所在线段的起点索引
+    // 例如：投影在线段5-6之间，routeSegIndex = 5
+    //
+    // 正确的路径连接：
+    // 灰色：... → 索引5 → 投影点
+    // 绿色：投影点 → 索引6 → 索引7 → ... → 目标
+    //
+    // 所以绿色路线应该从 routeSegIndex+1 开始（线段终点）
+    const greenStartIndex = Math.max(0, routeSegIndex + 1); // 从投影所在线段的终点开始
     const greenEndIndex = Math.min(legEndIndex + 1, fullPath.length);
 
     if (greenStartIndex < greenEndIndex) {
-        // 绿色路线 = [车辆吸附位置] + [从下一个索引点到目标点的路径]
+        // 绿色路线 = [车辆吸附位置] + [投影所在线段终点] + [后续路径到目标]
         const pathFromNextIndex = fullPath.slice(greenStartIndex, greenEndIndex);
 
         // ====== 新增：将车辆图标的吸附位置（投影点）作为绿色路线起点 ======
