@@ -4382,6 +4382,7 @@ function startRealNavigationTracking() {
             // 计算朝向并旋转：
             // 只要在路网上（onRoute），优先使用路线前进方向；否则回退设备朝向或移动向量
             let heading = null;
+            let usedPathHeading = false;
             if (onRoute && fullPath && fullPath.length >= 2) {
                 // 在路网上：使用规划路径的前进方向（路径切线）
                 // 优先根据投影索引获取下一点；若投影不可用，退回 segIndex
@@ -4399,6 +4400,7 @@ function startRealNavigationTracking() {
                 if (nextPoint) {
                     heading = calculateBearingBetweenPoints(displayPos, nextPoint);
                     console.log('使用路线前进方向作为朝向:', heading.toFixed(1), '度');
+                    usedPathHeading = true;
                 }
             }
 
@@ -4422,6 +4424,13 @@ function startRealNavigationTracking() {
                     // 注意：已到达起点后使用路线方向时，跳过自动校准（避免误判）
                     if (!hasReachedStart || !onRoute) {
                         attemptAutoCalibrationNav(displayPos, heading);
+                    }
+                    // 路网上使用的路径朝向应不受动态180°翻转影响，这里预减去动态偏移
+                    if (usedPathHeading) {
+                        try {
+                            const dyn = (dynamicAngleOffsetNav || 0);
+                            heading = ((heading - dyn) % 360 + 360) % 360;
+                        } catch (e) {}
                     }
                     navApplyHeadingToMarker(heading);
                 } catch (e) {
@@ -4462,6 +4471,8 @@ function startRealNavigationTracking() {
                     if (distToStart <= (startRebaseThresholdMeters || 25)) {
                         hasReachedStart = true;
                         onRoute = true;
+                        // 重置动态朝向校准，避免早期离线/原地误校导致的180°反转
+                        try { dynamicAngleOffsetNav = 0; calibrationStateNav = { count0: 0, count180: 0, locked: false }; } catch (e) {}
                         // ====== 记录导航起始索引 ======
                         navigationStartIndex = Math.max(0, segIndex);
                         console.log('到达起点附近，开始沿路网导航，起始索引:', navigationStartIndex);
@@ -4477,6 +4488,8 @@ function startRealNavigationTracking() {
                     // 兼容配置允许：只要在路网上就开始
                     if (onRoute) {
                         hasReachedStart = true;
+                        // 兼容直接在路网上起步：同样重置动态校准
+                        try { dynamicAngleOffsetNav = 0; calibrationStateNav = { count0: 0, count180: 0, locked: false }; } catch (e) {}
                         console.log('投影点在规划路网上，开始导航');
                     }
                 }
