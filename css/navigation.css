@@ -1,0 +1,978 @@
+/* 导航界面样式 */
+
+/* 地图容器 */
+#navigation-map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+}
+
+/* 底部信息卡片 */
+.navigation-card {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
+    border-radius: 20px 20px 0 0;
+    padding: 20px 70px 20px 20px;
+    box-shadow: none;
+    z-index: 90;
+    max-height: 90vh; /* 最大高度限制为屏幕的90%,避免遮挡太多地图 */
+    overflow: visible; /* 允许内容向上扩展 */
+}
+
+/* 路线选择器 */
+.route-selector {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    position: relative;
+}
+
+.location-inputs-wrapper {
+    flex: 1;
+    border: 1px solid #e6e9ef;
+    border-radius: 12px;
+    background: #fff;
+    position: relative; /* 作为绝对定位参照 */
+    padding-right: 56px; /* 预留按钮空间 */
+}
+
+.location-inputs {
+    display: flex;
+    flex-direction: column;
+}
+
+.location-inputs .location-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 12px 14px 16px;
+    border: none;
+    background: transparent;
+}
+
+.location-item i {
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.location-item i.start-icon {
+    color: #007bff;
+}
+
+.location-item i.end-icon {
+    color: #ff4444;
+    font-size: 14px;
+}
+
+.location-item input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 15px;
+    color: #333;
+    background: transparent;
+    padding-right: 8px;
+}
+
+.location-item input::placeholder {
+    color: #999;
+}
+
+.divider-line {
+    display: flex;
+    align-items: center;
+    padding: 0 12px 0 16px;
+    gap: 10px;
+}
+
+.divider-line::before {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e6e9ef;
+}
+
+/* 让导航页途径点下划线与“我的位置”分隔线等长 */
+.waypoint-row::after {
+    content: '';
+    position: absolute;
+    left: 16px;
+    right: 12px;
+    bottom: 0;
+    height: 1px;
+    background: #e6e9ef;
+}
+
+.swap-btn {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: absolute; /* 固定在输入盒子右侧中部 */
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2;
+}
+
+.swap-btn img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+}
+
+.swap-btn:hover {
+    transform: translateY(-50%) scale(1.1);
+}
+
+.swap-btn:active {
+    transform: translateY(-50%) scale(0.95);
+}
+
+/* 添加途径点按钮 */
+.add-waypoint {
+    position: absolute;
+    right: -60px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.add-waypoint .add-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.add-waypoint .add-btn:hover {
+    transform: scale(1.1);
+}
+
+.add-waypoint .add-btn:active {
+    transform: scale(0.95);
+}
+
+.add-waypoint .add-btn i {
+    font-size: 16px;
+}
+
+.add-waypoint .add-btn img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+}
+
+.add-waypoint .waypoint-label {
+    font-size: 12px;
+    color: #666;
+    text-align: center;
+}
+
+/* 途径点容器 - 垂直排列，高度自适应 */
+.waypoints-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    /* 移除高度限制和滚动，让途径点完全展开 */
+}
+
+/* 路线信息 */
+.route-info {
+    display: flex;
+    justify-content: center;
+    gap: 40px;
+    margin-bottom: 20px;
+    padding: 16px 0;
+}
+
+.route-info-item {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+}
+
+.info-label {
+    font-size: 14px;
+    color: #999;
+}
+
+.info-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: #333;
+    line-height: 1;
+}
+
+.info-unit {
+    font-size: 14px;
+    color: #666;
+}
+
+/* 开始导航按钮 */
+.start-navigation-btn {
+    width: 100%;
+    height: 56px;
+    border: none;
+    border-radius: 28px;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    background: #1E6FFF;
+    color: white;
+    box-shadow: 0 4px 16px rgba(30, 111, 255, 0.3);
+    transition: all 0.3s ease;
+}
+
+.start-navigation-btn:hover {
+    background: #0D5CE3;
+    box-shadow: 0 6px 20px rgba(30, 111, 255, 0.4);
+}
+
+.start-navigation-btn:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 12px rgba(30, 111, 255, 0.3);
+}
+
+/* 途径点输入与搜索结果 */
+.waypoint-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 0;
+    position: relative;
+}
+
+.waypoint-row .location-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 14px 12px 14px 16px;
+    position: relative;
+    flex: 1;
+}
+
+/* 途径点下划线 */
+.waypoint-row::after {
+    content: '';
+    position: absolute;
+    left: 16px;
+    right: 12px;
+    bottom: 0;
+    height: 1px;
+    background: #e6e9ef;
+}
+
+.waypoint-row .location-item .waypoint-input {
+    flex: 1;
+    height: 32px;
+    border: none;
+    outline: none;
+    font-size: 14px;
+    background: transparent;
+}
+
+.waypoint-row .waypoint-actions button {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #999;
+    cursor: pointer;
+}
+
+.waypoint-search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #fff;
+    border: 1px solid #e6e9ef;
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    max-height: 240px;
+    overflow-y: auto;
+    z-index: 120;
+}
+
+.waypoint-result-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    cursor: pointer;
+}
+
+.waypoint-result-item:hover {
+    background: #f8fafc;
+}
+
+.wpi-left { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+.wpi-left img { width: 18px; height: 18px; object-fit: contain; }
+.wpi-main { display: flex; flex-direction: column; }
+.wpi-title { font-size: 14px; color: #333; }
+.wpi-sub { font-size: 12px; color: #999; margin-top: 2px; }
+
+/* 导航提示卡片 */
+.navigation-tip-card {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #1565C0; /* 深蓝色背景 */
+    border-radius: 0 0 16px 16px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    z-index: 150; /* 提高z-index确保置顶 */
+    display: none; /* 默认隐藏，导航开始时显示 */
+    overflow: hidden;
+}
+
+.navigation-tip-card.active {
+    display: block;
+}
+
+.tip-card-content {
+    display: flex;
+    align-items: center;
+    padding: 20px 16px;
+    gap: 16px;
+}
+
+.tip-direction-icon {
+    width: 70px;
+    height: 70px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.15); /* 添加半透明白色背景，突出图标 */
+    border-radius: 12px;
+}
+
+.tip-direction-icon img {
+    width: 70%;
+    height: 70%;
+    object-fit: contain;
+    filter: brightness(0) invert(1); /* 将图标转为白色 */
+}
+
+.tip-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: #FFFFFF; /* 文字改为白色 */
+}
+
+.tip-main-text {
+    display: flex;
+    align-items: center; /* 改为居中对齐 */
+    gap: 4px;
+    flex-wrap: nowrap; /* 不换行 */
+}
+
+.tip-distance-ahead {
+    font-size: 24px; /* 改为适中大小，适合一行显示 */
+    font-weight: 600;
+    color: #FFFFFF; /* 白色 */
+    line-height: 1.2;
+    white-space: nowrap; /* 不换行 */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+
+.tip-distance-unit {
+    font-size: 20px;
+    font-weight: 600;
+    color: #FFFFFF;
+    line-height: 1.2;
+}
+
+.tip-action {
+    font-size: 24px;
+    font-weight: 600;
+    color: #FFFFFF;
+    line-height: 1.2;
+}
+
+.tip-divider {
+    width: 100%;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.2); /* 半透明白色分割线 */
+    margin: 4px 0;
+}
+
+.tip-details {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    font-size: 14px;
+    color: #E3F2FD; /* 浅蓝白色 */
+    flex-wrap: wrap;
+}
+
+.tip-remaining-label {
+    color: #BBDEFB; /* 更浅的蓝白色 */
+}
+
+.tip-remaining-value {
+    font-weight: 600;
+    color: #FFFFFF; /* 白色 */
+}
+
+.tip-estimated-label {
+    color: #BBDEFB; /* 更浅的蓝白色 */
+}
+
+.tip-estimated-value {
+    font-weight: 600;
+    color: #FFFFFF; /* 白色 */
+}
+
+/* 导航中的底部卡片样式 */
+.navigation-card.navigating {
+    padding: 20px;
+}
+
+.navigation-card.navigating .route-selector,
+.navigation-card.navigating .route-info,
+.navigation-card.navigating .start-navigation-btn {
+    display: none;
+}
+
+.destination-info {
+    display: none; /* 默认隐藏 */
+}
+
+.navigation-card.navigating .destination-info {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.destination-close-btn {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+}
+
+.destination-close-btn img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+.destination-close-btn:active {
+    opacity: 0.6;
+}
+
+.destination-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.destination-org {
+    font-size: 14px;
+    color: #999;
+}
+
+.destination-name {
+    font-size: 28px;
+    font-weight: 700;
+    color: #333;
+    line-height: 1.2;
+}
+
+.destination-stats {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 18px;
+    color: #666;
+}
+
+.destination-stats .distance {
+    font-weight: 600;
+}
+
+.destination-stats .separator {
+    color: #ccc;
+}
+
+.destination-stats .time {
+    font-weight: 600;
+}
+
+/* 指北针样式 */
+.compass-indicator {
+    position: absolute;
+    width: 48px;
+    height: 48px;
+    z-index: 100;
+    pointer-events: none; /* 不阻挡地图交互 */
+    transition: transform 0.3s ease; /* 平滑旋转 */
+}
+
+.compass-indicator img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3)); /* 添加阴影增强可见性 */
+}
+
+/* 响应式调整 */
+@media (max-height: 700px) {
+    .navigation-card {
+        padding: 15px;
+    }
+
+    .route-info {
+        gap: 30px;
+        padding: 12px 0;
+        margin-bottom: 15px;
+    }
+
+    .info-value {
+        font-size: 28px;
+    }
+
+    .start-navigation-btn {
+        height: 50px;
+        font-size: 16px;
+    }
+
+    /* 保持导航提示卡片置顶，无需在此处覆盖样式 */
+
+    .tip-card-content {
+        padding: 16px;
+    }
+
+    .tip-direction-icon {
+        width: 60px;
+        height: 60px;
+    }
+
+    .tip-distance-ahead {
+        font-size: 28px;
+    }
+
+    .tip-action {
+        font-size: 20px;
+    }
+}
+
+/* 小屏幕宽度适配 - 针对途径点显示问题 */
+@media (max-width: 375px) {
+    /* 减少底部卡片padding */
+    .navigation-card {
+        padding: 15px 60px 15px 15px;
+    }
+
+    /* 减少路线选择器margin */
+    .route-selector {
+        margin-bottom: 12px;
+    }
+
+    /* 缩小起点/终点行的padding */
+    .location-inputs .location-item {
+        padding: 10px 10px 10px 12px;
+        gap: 10px;
+    }
+
+    /* 缩小途径点行的padding */
+    .waypoint-row .location-item {
+        padding: 10px 8px 10px 12px;
+        gap: 8px;
+    }
+
+    /* 调整输入框字体大小 */
+    .waypoint-row .location-item .waypoint-input {
+        font-size: 13px;
+    }
+
+    .location-item input {
+        font-size: 14px;
+    }
+
+    /* 缩小图标尺寸 */
+    .waypoint-row .location-item i {
+        font-size: 12px;
+    }
+
+    .location-item i {
+        font-size: 13px;
+    }
+
+    /* 缩小删除按钮 */
+    .waypoint-row .waypoint-actions button {
+        width: 24px;
+        height: 24px;
+        font-size: 12px;
+    }
+
+    /* 调整交换按钮位置 */
+    .swap-btn {
+        width: 32px;
+        height: 32px;
+        right: 8px;
+    }
+
+    .swap-btn img {
+        width: 16px;
+        height: 16px;
+    }
+
+    /* 缩小分割线padding */
+    .divider-line {
+        padding: 0 10px 0 12px;
+    }
+
+    /* 减少路线信息区域的间距 */
+    .route-info {
+        gap: 30px;
+        padding: 12px 0;
+        margin-bottom: 12px;
+    }
+
+    .info-value {
+        font-size: 28px;
+    }
+
+    /* 缩小开始导航按钮 */
+    .start-navigation-btn {
+        height: 48px;
+        font-size: 16px;
+    }
+}
+
+/* 中等小屏幕适配 */
+@media (max-width: 414px) and (min-width: 376px) {
+    .navigation-card {
+        padding: 18px 65px 18px 18px;
+    }
+
+    .route-selector {
+        margin-bottom: 14px;
+    }
+
+    .location-inputs .location-item {
+        padding: 12px 10px 12px 14px;
+    }
+
+    .waypoint-row .location-item {
+        padding: 11px 10px 11px 14px;
+        gap: 10px;
+    }
+
+    .waypoint-row .location-item .waypoint-input {
+        font-size: 14px;
+    }
+
+    .route-info {
+        padding: 14px 0;
+        margin-bottom: 14px;
+    }
+
+    .start-navigation-btn {
+        height: 52px;
+    }
+}
+
+/* 超小屏幕(iPhone SE等) */
+@media (max-width: 320px) {
+    .navigation-card {
+        padding: 12px 55px 12px 12px;
+    }
+
+    .location-inputs-wrapper {
+        padding-right: 48px;
+    }
+
+    .route-selector {
+        margin-bottom: 10px;
+    }
+
+    .location-inputs .location-item {
+        padding: 8px 8px 8px 10px;
+        gap: 8px;
+    }
+
+    .waypoint-row .location-item {
+        padding: 8px 6px 8px 10px;
+        gap: 6px;
+    }
+
+    .waypoint-row .location-item .waypoint-input {
+        font-size: 12px;
+    }
+
+    .location-item input {
+        font-size: 13px;
+    }
+
+    .divider-line {
+        padding: 0 8px 0 10px;
+    }
+
+    .route-info {
+        gap: 25px;
+        padding: 10px 0;
+        margin-bottom: 10px;
+    }
+
+    .info-value {
+        font-size: 26px;
+    }
+
+    .info-label, .info-unit {
+        font-size: 13px;
+    }
+
+    .start-navigation-btn {
+        height: 44px;
+        font-size: 15px;
+    }
+
+    /* 缩小添加途径点按钮 */
+    .add-waypoint .add-btn {
+        width: 36px;
+        height: 36px;
+    }
+
+    .add-waypoint .add-btn img {
+        width: 28px;
+        height: 28px;
+    }
+
+    .add-waypoint .waypoint-label {
+        font-size: 11px;
+    }
+}
+
+/* 退出导航确认弹窗 - 覆盖目的地信息栏 */
+.exit-navigation-modal {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 95;
+    display: none;
+    pointer-events: none;
+}
+
+.exit-navigation-modal.active {
+    display: block;
+    pointer-events: auto;
+}
+
+.exit-modal-content {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-radius: 20px 20px 0 0;
+    padding: 20px;
+    box-shadow: 0 -2px 20px rgba(0, 0, 0, 0.1);
+    animation: slideUp 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+}
+
+@keyframes slideUp {
+    from {
+        transform: translateY(100%);
+    }
+    to {
+        transform: translateY(0);
+    }
+}
+
+.exit-modal-text {
+    font-size: 18px;
+    color: #333;
+    text-align: center;
+    font-weight: 500;
+}
+
+.exit-icon {
+    display: none;
+}
+
+.exit-buttons {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.exit-cancel-btn,
+.exit-confirm-btn {
+    flex: 1;
+    height: 44px;
+    border: none;
+    border-radius: 22px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.exit-cancel-btn {
+    background: #f5f5f5;
+    color: #666;
+}
+
+.exit-cancel-btn:active {
+    background: #e0e0e0;
+}
+
+.exit-confirm-btn {
+    background: #1E6FFF;
+    color: white;
+    font-weight: 600;
+}
+
+.exit-confirm-btn:active {
+    background: #0D5CE3;
+}
+
+/* 导航完成弹窗 */
+.navigation-complete-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 300;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    pointer-events: none;
+}
+
+.navigation-complete-modal.active {
+    display: flex;
+    pointer-events: auto;
+}
+
+.complete-modal-content {
+    background: white;
+    border-radius: 20px;
+    padding: 32px 24px;
+    width: 100%;
+    max-width: 320px;
+    animation: scaleIn 0.3s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.complete-icon {
+    width: 120px;
+    height: 120px;
+    object-fit: contain;
+}
+
+.complete-info {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.complete-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.complete-label {
+    font-size: 16px;
+    color: #666;
+}
+
+.complete-value {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: 32px;
+    font-weight: 700;
+    color: #333;
+}
+
+.complete-unit {
+    font-size: 16px;
+    font-weight: 400;
+    color: #999;
+}
+
+.complete-finish-btn {
+    width: 100%;
+    height: 48px;
+    border: none;
+    border-radius: 24px;
+    background: #1E6FFF;
+    color: white;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.complete-finish-btn:active {
+    background: #0D5CE3;
+    transform: scale(0.98);
+}

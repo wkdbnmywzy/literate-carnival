@@ -1,0 +1,926 @@
+/* 任务页面容器 */
+.container {
+    width: 100%;
+    margin: 0 auto;
+    position: relative;
+    /* 在大屏设备上限制最大宽度，保持合理的阅读体验 */
+    max-width: 100%;
+}
+
+/* 在大屏设备上优化布局 */
+@media (min-width: 768px) {
+    .container {
+        max-width: 768px;
+    }
+}
+
+@media (min-width: 1024px) {
+    .container {
+        max-width: 1024px;
+    }
+    
+    .task-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+    }
+    
+    .task-card {
+        flex: 1 1 calc(33.333% - 16px);
+        margin-bottom: 0;
+    }
+}
+
+@media (min-width: 1440px) {
+    .container {
+        max-width: 1200px;
+    }
+    
+    .task-card {
+        flex: 1 1 calc(25% - 16px);
+    }
+}
+
+/* 任务页面样式 */
+.task-page {
+    width: 100%;
+    height: 100vh;
+    background-color: #FFFFFF;
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 60px;
+    /* 统一时间轴虚线颜色（横向/纵向公用） */
+    --timeline-dash-color: #143662;
+}
+
+
+
+.task-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #333333;
+    margin: 0;
+}
+
+
+
+.task-menu-btn,
+.task-locate-btn {
+    width: 40px;
+    height: 40px;
+    border: 1px solid #E0E0E0;
+    border-radius: 50%;
+    background-color: #FFFFFF;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 18px;
+    color: #666666;
+}
+
+.task-menu-btn:active,
+.task-locate-btn:active {
+    background-color: #F5F5F5;
+}
+
+/* 空状态 */
+.task-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+}
+
+.empty-icon {
+    margin-bottom: 20px;
+}
+
+.empty-text {
+    font-size: 16px;
+    color: #BDBDBD;
+}
+
+/* 任务列表 */
+.task-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    background-color: #FFFFFF;
+    /* 隐藏滚动条 */
+    scrollbar-width: none; /* Firefox */
+    -ms-overflow-style: none; /* IE/Edge */
+}
+
+.task-list::-webkit-scrollbar {
+    display: none; /* Chrome/Safari/Opera */
+}
+
+/* 任务卡片 */
+.task-card {
+    background: linear-gradient(180deg, #F9FCFF 0%, #F3F8FF 100%);
+    border-radius: 6px;
+    padding: 16px;
+    margin-bottom: 12px;
+    box-shadow: 0px 0px 4px 0px rgba(47, 72, 83, 0.2);
+    border: none;
+}
+
+/* 任务卡片头部颜色 - 根据状态显示 */
+.task-card.task-green .task-card-header {
+    /* 从上到下由颜色渐变到白色，向后兼容保留 background-color 作为回退 */
+    background: linear-gradient(to bottom, #E8F5E9 0%, #FFFFFF 100%);
+    background-color: #E8F5E9;
+    margin: -16px -16px 12px -16px;
+    padding: 16px;
+    border-radius: 10px 10px 0 0;
+}
+
+.task-card.task-pink .task-card-header {
+    /* 从上到下由颜色渐变到白色，向后兼容保留 background-color 作为回退 */
+    background: linear-gradient(to bottom, #FFEBEE 0%, #FFFFFF 100%);
+    background-color: #FFEBEE;
+    margin: -16px -16px 12px -16px;
+    padding: 16px;
+    border-radius: 10px 10px 0 0;
+}
+
+.task-card.task-blue .task-card-header {
+    /* 从上到下由亮蓝色渐变到白色，向后兼容保留 background-color 作为回退 */
+    background: linear-gradient(to bottom, #E3F2FD 0%, #FFFFFF 100%);
+    background-color: #E3F2FD;
+    margin: -16px -16px 12px -16px;
+    padding: 16px;
+    border-radius: 10px 10px 0 0;
+}
+
+/* 按任务状态的头部渐变（覆盖默认配色） */
+.task-card.task-status-in-progress .task-card-header {
+    background: linear-gradient(179deg, rgba(129,237,157,0.3) 0%, rgba(129,237,157,0) 100%);
+    margin: -16px -16px 12px -16px;
+    padding: 16px;
+    border-radius: 6px 6px 0 0;
+}
+
+.task-card.task-status-not-started .task-card-header {
+    background: linear-gradient(179deg, rgba(129,237,157,0.3) 0%, rgba(129,237,157,0) 100%);
+    margin: -16px -16px 12px -16px;
+    padding: 16px;
+    border-radius: 6px 6px 0 0;
+}
+
+/* 已逾期状态头部渐变 */
+.task-card.task-status-overdue .task-card-header {
+    background: linear-gradient(179deg, rgba(255,165,153,0.3) 0%, rgba(255,165,153,0) 100%);
+    margin: -16px -16px 12px -16px;
+    padding: 16px;
+    border-radius: 6px 6px 0 0;
+}
+
+
+/* 任务卡片头部 */
+.task-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative; /* 供伪元素绘制内缩分割线 */
+}
+
+/* 任务与项目之间的分割线，长度与下方详情分割线一致（内容区宽度） */
+.task-card-header::after {
+    content: '';
+    position: absolute;
+    left: 16px;   /* 与卡片左右内边距一致 */
+    right: 16px;  /* 与卡片左右内边距一致 */
+    bottom: 0;
+    height: 0;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.task-card-left {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.task-card-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333333;
+    margin-bottom: 0; /* 与任务类型同排显示，去掉下边距 */
+}
+
+.task-card-type {
+    font-size: 14px;
+    color: #64B5F6;
+}
+
+.task-card-nav {
+    width: 32px;
+    height: 32px;
+    border: none;
+    background-color: transparent;
+    cursor: pointer;
+    padding: 0;
+}
+
+.task-card-nav .nav-icon {
+    width: 25px;
+    height: 25px;
+    display: block;
+}
+
+/* 任务状态（显示在任务名称最右侧） */
+.task-card-status {
+    width: 80px;
+    height: 16px;
+    font-family: 'OPPO Sans 4.0','OPPO Sans 40', system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    line-height: 16px;
+    text-align: right;
+    font-style: normal;
+    text-transform: none;
+    margin-left: auto; /* 将状态推到右侧 */
+    margin-right: 8px; /* 与导航按钮保持间距 */
+    white-space: nowrap;
+}
+
+/* 状态配色：进行中 */
+.task-card-status.status-in-progress {
+    color: #00C580;
+}
+
+/* 状态配色：已逾期 */
+.task-card-status.status-overdue {
+    color: #F47160;
+}
+
+/* 状态配色：未开始 */
+.task-card-status.status-not-started {
+    color: #143662;
+}
+
+.task-card-nav i {
+    font-size: 24px;
+    color: #64B5F6;
+}
+
+/* 任务详情区域 */
+.task-detail-section {
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    margin-top: 12px;
+    padding-top: 12px;
+}
+
+.task-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 4px 0;
+}
+
+.task-detail-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: #333333;
+}
+
+.task-detail-toggle {
+    font-size: 16px;
+    color: #666666;
+    transition: transform 0.3s ease;
+}
+
+.task-detail-toggle.expanded {
+    transform: rotate(180deg);
+}
+
+.task-detail-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.task-detail-content.expanded {
+    max-height: 1000px;
+}
+
+.task-detail-text {
+    font-size: 13px;
+    color: #666666;
+    line-height: 1.6;
+    padding: 12px 0 8px 0;
+}
+
+/* 任务进度时间轴 */
+.task-timeline {
+    padding: 16px 0 0 0;
+    position: relative;
+}
+
+.task-timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 24px;
+    bottom: 24px;
+    width: 2px;
+    background-image: repeating-linear-gradient(
+        to bottom,
+        var(--timeline-dash-color, #143662),
+        var(--timeline-dash-color, #143662) 4px,
+        transparent 4px,
+        transparent 8px
+    );
+}
+
+.timeline-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    position: relative;
+    margin-bottom: 8px;
+}
+
+.timeline-row:last-child {
+    margin-bottom: 0;
+}
+
+.timeline-point {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    z-index: 1;
+    position: relative;
+}
+
+.timeline-point.start {
+    width: 9px;
+    height: 9px;
+    background: #2C88FF; /* 起点小蓝色点 */
+    border-radius: 50%;   /* 保持圆形 */
+}
+
+.timeline-point.end {
+    width: 9px;
+    height: 9px;
+    background: #F47160; /* 重点项目小红点 */
+    border-radius: 50%;   /* 保持圆形 */
+}
+
+.timeline-info {
+    flex: 1;
+    padding-bottom: 8px;
+}
+
+/* 横向时间轴 */
+.timeline-horizontal {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+}
+
+.timeline-horizontal::before {
+    display: none; /* 不显示竖向分割线 */
+}
+
+.timeline-horizontal .timeline-row {
+    flex: 1;
+    display: flex;
+    flex-direction: column; /* 圆点在上，信息在下 */
+    align-items: center;
+    justify-content: flex-start;
+    gap: 6px; /* 点与文字之间的间距 */
+    margin-bottom: 0;
+}
+
+.timeline-horizontal .timeline-point {
+    margin-right: 0;
+    margin-bottom: 2px;
+}
+
+.timeline-horizontal .timeline-info {
+    padding-bottom: 0;
+    text-align: center;
+}
+
+.timeline-horizontal .timeline-status {
+    display: none; /* 横向时隐藏中间状态徽章，避免挤占空间 */
+}
+
+.timeline-horizontal .timeline-separator {
+    align-self: center;
+    width: 60px;
+    height: 1px; /* 用背景图模拟虚线 */
+    border-radius: 0;
+    border: 0; /* 移除边框，避免与背景叠加 */
+    background-image: repeating-linear-gradient(
+        to right,
+        var(--timeline-dash-color, #143662) 0,
+        var(--timeline-dash-color, #143662) 10px,
+        transparent 10px,
+        transparent 20px
+    );
+    flex: 0 0 auto;
+}
+
+.timeline-location {
+    font-size: 14px;
+    color: #333333;
+    font-weight: 500;
+    margin-bottom: 2px;
+}
+
+/* 终点名称与导航按钮同排显示 */
+.timeline-location-row {
+    display: flex;
+    align-items: center;
+    justify-content: center; /* 横向布局下整体居中 */
+    gap: 8px;
+}
+
+.timeline-date {
+    font-size: 12px;
+    color: #999999;
+    margin-bottom: 2px;
+}
+
+.timeline-time {
+    font-size: 12px;
+    color: #999999;
+}
+
+.timeline-status {
+    text-align: center;
+    padding: 12px 0;
+    position: relative;
+    left: -4px;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 4px 12px;
+    background-color: #4CAF50;
+    color: #FFFFFF;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* 导航确认弹窗 */
+.nav-confirm-dialog {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+}
+
+.nav-confirm-dialog.show {
+    display: block;
+}
+
+.nav-dialog-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+}
+
+.nav-dialog-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background-color: #FFFFFF;
+    border-radius: 16px;
+    padding: 24px;
+    width: 280px;
+    max-width: 90%;
+}
+
+.nav-dialog-header {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.nav-dialog-icon {
+    font-size: 48px;
+    color: #64B5F6;
+}
+
+.nav-dialog-title {
+    width: 66px;
+    height: 24px;
+    font-family: 'OPPO Sans 4.0','OPPO Sans 40';
+    font-weight: 600;
+    font-size: 16px;
+    color: #2A86FF;
+    line-height: 24px;
+    text-align: center;
+    font-style: normal;
+    text-transform: none;
+    margin: 8px auto 16px auto; /* 保持在弹窗内水平居中 */
+}
+
+.nav-dialog-body {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.nav-dialog-project {
+    font-size: 14px;
+    color: #666666;
+    margin-bottom: 4px;
+}
+
+.nav-dialog-location {
+    font-size: 16px;
+    font-weight: 600;
+    color: #333333;
+}
+
+.nav-dialog-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.nav-dialog-btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+.nav-dialog-confirm {
+    background-color: #2196F3;
+    color: #FFFFFF;
+}
+
+.nav-dialog-confirm:active {
+    background-color: #1976D2;
+}
+
+.nav-dialog-cancel {
+    background-color: #E0E0E0;
+    color: #666666;
+}
+
+.nav-dialog-cancel:active {
+    background-color: #BDBDBD;
+}
+
+
+/* 任务页面导航栏在特定设备上的额外调整 */
+@media (max-width: 320px) {
+    .task-page {
+        padding-bottom: 50px; /* 调整为小屏导航栏高度 */
+    }
+}
+
+@media (max-height: 500px) {
+    .task-page {
+        padding-bottom: 45px; /* 调整为超小高度导航栏高度 */
+    }
+}
+
+@media (orientation: landscape) {
+    .task-page {
+        padding-bottom: 45px; /* 调整为横屏导航栏高度 */
+    }
+}
+
+@media (min-width: 768px) {
+    .task-page {
+        padding-bottom: 70px; /* 调整为大屏导航栏高度 */
+    }
+}
+
+@media (min-width: 1024px) {
+    .task-page {
+        padding-bottom: 80px; /* 调整为大屏导航栏高度 */
+    }
+}
+
+
+/* 响应式设计 - 适配各种手机机型长宽布局 */
+
+/* 针对小高度设备（如横屏手机、小屏手机） */
+@media (max-height: 700px) {
+    .task-page {
+        padding-bottom: 50px;
+    }
+
+    .task-title {
+        font-size: 16px;
+    }
+
+    .task-list {
+        padding: 8px 12px;
+    }
+
+    .task-card {
+        padding: 12px;
+        margin-bottom: 8px;
+    }
+
+    .task-card-name {
+        font-size: 15px;
+    }
+
+    .task-card-type {
+        font-size: 13px;
+    }
+
+    .task-detail-title {
+        font-size: 13px;
+    }
+
+    .task-detail-text {
+        font-size: 12px;
+    }
+
+    .empty-icon svg {
+        width: 160px;
+        height: 120px;
+    }
+
+    .empty-text {
+        font-size: 14px;
+    }
+}
+
+/* 针对超小高度设备（如横屏模式） */
+@media (max-height: 500px) {
+    .task-page {
+        padding-bottom: 40px;
+    }
+
+    .task-title {
+        font-size: 15px;
+    }
+
+    .task-list {
+        padding: 6px 10px;
+    }
+
+    .task-card {
+        padding: 10px;
+        margin-bottom: 6px;
+    }
+
+    .task-card-name {
+        font-size: 14px;
+    }
+
+    .task-card-type {
+        font-size: 12px;
+    }
+
+    .task-detail-title {
+        font-size: 12px;
+    }
+
+    .task-detail-text {
+        font-size: 11px;
+        padding: 8px 0 6px 0;
+    }
+
+    .empty-icon svg {
+        width: 120px;
+        height: 96px;
+    }
+
+    .empty-text {
+        font-size: 13px;
+    }
+
+    .task-timeline {
+        padding: 12px 0 0 0;
+    }
+
+    .timeline-row {
+        margin-bottom: 6px;
+    }
+
+    .timeline-info {
+        padding-bottom: 6px;
+    }
+
+    .timeline-horizontal {
+        gap: 16px;
+    }
+
+    .timeline-horizontal .timeline-separator {
+        width: 40px;
+    }
+}
+
+/* 针对超小宽度设备 */
+@media (max-width: 320px) {
+    .container {
+        max-width: 100%;
+    }
+
+    .task-title {
+        font-size: 16px;
+    }
+
+    .task-card {
+        padding: 12px;
+    }
+
+    .task-card-name {
+        font-size: 15px;
+    }
+
+    .task-card-type {
+        font-size: 13px;
+    }
+
+    .task-detail-title {
+        font-size: 13px;
+    }
+
+    .task-detail-text {
+        font-size: 12px;
+    }
+
+    .empty-icon svg {
+        width: 160px;
+        height: 120px;
+    }
+
+    .empty-text {
+        font-size: 14px;
+    }
+
+    .task-card-status {
+        width: 70px;
+        font-size: 14px;
+    }
+}
+
+/* 针对大屏手机设备 */
+@media (min-width: 414px) and (min-height: 800px) {
+    .container {
+        max-width: 100%;
+    }
+
+    .task-title {
+        font-size: 20px;
+    }
+
+    .task-list {
+        padding: 16px 20px;
+    }
+
+    .task-card {
+        padding: 20px;
+        margin-bottom: 16px;
+    }
+
+    .task-card-name {
+        font-size: 18px;
+    }
+
+    .task-card-type {
+        font-size: 16px;
+    }
+
+    .task-detail-title {
+        font-size: 16px;
+    }
+
+    .task-detail-text {
+        font-size: 14px;
+        padding: 16px 0 10px 0;
+    }
+
+    .empty-icon svg {
+        width: 240px;
+        height: 192px;
+    }
+
+    .empty-text {
+        font-size: 18px;
+    }
+
+    .task-timeline {
+        padding: 20px 0 0 0;
+    }
+
+    .timeline-row {
+        margin-bottom: 12px;
+    }
+
+    .timeline-info {
+        padding-bottom: 12px;
+    }
+
+    .timeline-horizontal {
+        gap: 32px;
+    }
+
+    .timeline-horizontal .timeline-separator {
+        width: 80px;
+    }
+}
+
+/* 针对宽屏设备（横屏模式） */
+@media (orientation: landscape) {
+    .container {
+        max-width: 100%;
+    }
+
+    .task-page {
+        padding-bottom: 40px;
+    }
+
+    .task-title {
+        font-size: 16px;
+    }
+
+    .task-list {
+        padding: 8px 15px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .task-card {
+        flex: 1 1 calc(50% - 5px);
+        margin-bottom: 0;
+        min-height: 180px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .task-detail-content.expanded {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    .empty-icon svg {
+        width: 160px;
+        height: 128px;
+    }
+
+    .empty-text {
+        font-size: 15px;
+    }
+
+    .timeline-horizontal {
+        margin-top: 10px;
+    }
+}
+
+/* 针对带刘海或打孔屏的手机 */
+@supports (padding: max(0px)) {
+
+    .task-page {
+        padding-bottom: max(60px, 60px + env(safe-area-inset-bottom));
+    }
+
+    .nav-confirm-dialog {
+        padding-bottom: max(0px, env(safe-area-inset-bottom));
+    }
+}
+
+/* 适配超长屏设备（如全面屏手机） */
+@media (aspect-ratio: 2/3) {
+    .task-list {
+        padding: 10px 14px;
+    }
+
+    .task-card {
+        margin-bottom: 10px;
+    }
+}
+
+@media (aspect-ratio: 9/19.5) or (aspect-ratio: 9/20) {
+    .task-list {
+        padding: 12px 16px;
+    }
+
+    .task-card {
+        margin-bottom: 12px;
+    }
+
+    .task-detail-content.expanded {
+        max-height: 400px;
+    }
+}

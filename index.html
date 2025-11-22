@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>工地地图</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    <script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=02e4976e38eb8bc8bcf71a9c485cc2ae"></script>
+</head>
+<!-- 隐藏的文件输入 -->
+<input type="file" id="file-input" accept=".kml" style="display: none;">
+<body>
+    <div class="container">
+        <!-- 地图容器 -->
+        <div id="map-container"></div>
+        
+        <!-- 搜索区域 -->
+        <div class="search-container">
+            <div class="search-box">
+                <img src="images/工地数字导航小程序切图/司机/2X/导航/搜索.png" class="search-icon-img" alt="搜索">
+                <input type="text" placeholder="输入文字搜索目的地" id="search-input" readonly>
+            </div>
+            <div class="search-results" id="search-results">
+                <!-- 搜索结果将动态填充 -->
+            </div>
+        </div>
+        
+        <!-- 地图控制按钮 -->
+        <div class="map-controls">
+            <!-- 导入按钮 -->
+            <button class="control-btn" id="import-btn" title="导入数据">
+                <i class="fas fa-upload"></i>
+            </button>
+            <button class="control-btn" id="locate-btn" title="定位">
+                <img src="images/工地数字导航小程序切图/司机/2X/导航/定位.png" alt="定位" style="width: 24px; height: 24px;">
+            </button>
+        </div>
+        
+        <!-- 底部卡片 -->
+        <div class="bottom-card" id="bottom-card">
+            <!-- 路线规划界面 -->
+            <div class="route-planning-section" id="route-planning-section">
+                <div class="route-selector">
+                    <div class="location-inputs-wrapper">
+                        <div class="location-inputs">
+                            <div class="location-item">
+                                <i class="fas fa-circle start-icon"></i>
+                                <input type="text" placeholder="我的位置" id="start-location" readonly>
+                            </div>
+                            <div class="divider-line">
+                                <button class="swap-btn" id="swap-locations-btn" title="切换起点终点">
+                                    <img src="images/工地数字导航小程序切图/司机/2X/导航/切换起点终点.png" alt="切换起点终点">
+                                </button>
+                            </div>
+                            <div class="waypoints-container" id="waypoints-container">
+                                <!-- 途经点将动态添加 -->
+                            </div>
+                            <div class="location-item">
+                                <i class="fas fa-circle end-icon"></i>
+                                <input type="text" placeholder="请输入目的地" id="end-location" readonly>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="add-waypoint">
+                        <div class="add-btn" id="add-waypoint-btn">
+                            <img src="images/工地数字导航小程序切图/司机/2X/导航/添加途径点.png" alt="添加途径点">
+                        </div>
+                        <div class="waypoint-label">途径点</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- 底部导航 -->
+        <div class="bottom-nav">
+            <div class="nav-item active" data-page="index">
+                <img class="nav-icon-img" src="images/工地数字导航小程序切图/司机/2X/菜单栏/导航-down.png" data-active="images/工地数字导航小程序切图/司机/2X/菜单栏/导航-down.png" data-inactive="images/工地数字导航小程序切图/司机/2X/菜单栏/导航-up.png" alt="导航">
+                <div class="nav-text">导航</div>
+            </div>
+            <div class="nav-item" data-page="task">
+                <img class="nav-icon-img" src="images/工地数字导航小程序切图/司机/2X/菜单栏/任务-up.png" data-active="images/工地数字导航小程序切图/司机/2X/菜单栏/任务-down.png" data-inactive="images/工地数字导航小程序切图/司机/2X/菜单栏/任务-up.png" alt="任务">
+                <div class="nav-text">任务</div>
+            </div>
+            <div class="nav-item" data-page="profile">
+                <img class="nav-icon-img" src="images/工地数字导航小程序切图/司机/2X/菜单栏/我的-up.png" data-active="images/工地数字导航小程序切图/司机/2X/菜单栏/我的-down.png" data-inactive="images/工地数字导航小程序切图/司机/2X/菜单栏/我的-up.png" alt="我的">
+                <div class="nav-text">我的</div>
+            </div>
+        </div>
+    </div>
+    <!-- 在 index.html 中更新脚本引用 -->
+    <script src="js/config.js"></script>
+    <script src="js/coordinate-convert.js"></script>
+    <script src="js/segment-splitter.js"></script>
+    <script src="js/map-core.js"></script>
+    <script src="js/kml-handler.js"></script>
+    <script src="js/search-service.js"></script>
+    <script src="js/enhanced-highlight.js"></script>
+    <script src="js/point-selection.js"></script>
+    <script src="js/kml-route-planning.js"></script>
+    <script src="js/route-planning.js"></script>
+    <script src="js/ui-utils.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

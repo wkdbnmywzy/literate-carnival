@@ -1,0 +1,801 @@
+/**
+ * nav-ui.js
+ * UI事件处理模块
+ * 负责所有UI交互、事件监听、模态框控制
+ */
+
+const NavUI = (function() {
+    'use strict';
+
+    /**
+     * 初始化UI事件
+     */
+    function init() {
+        try {
+            console.log('[NavUI] 初始化UI事件...');
+
+            // 绑定开始导航按钮
+            bindStartNavigationButton();
+
+            // 绑定路线规划相关按钮
+            bindRoutePlanningButtons();
+
+            // 绑定退出/完成按钮
+            bindExitButtons();
+
+            // 绑定底部导航栏
+            bindBottomNavigation();
+
+            // 绑定键盘快捷键
+            bindKeyboardShortcuts();
+
+            console.log('[NavUI] UI事件初始化完成');
+            return true;
+        } catch (e) {
+            console.error('[NavUI] UI初始化失败:', e);
+            return false;
+        }
+    }
+
+    /**
+     * 绑定开始导航按钮
+     */
+    function bindStartNavigationButton() {
+        const startBtn = document.getElementById('start-navigation-btn');
+        if (startBtn) {
+            startBtn.addEventListener('click', async function() {
+                console.log('[NavUI] 点击开始导航');
+
+                // 禁用按钮,防止重复点击
+                startBtn.disabled = true;
+                const originalText = startBtn.textContent;
+                startBtn.textContent = '正在启动...';
+
+                try {
+                    // 启动导航核心(异步,会检查GPS权限)
+                    const success = await NavCore.startNavigation();
+
+                    if (success) {
+                        // 显示提示卡片
+                        showTipCard();
+
+                        // 切换底部卡片为导航状态
+                        const navigationCard = document.getElementById('navigation-card');
+                        if (navigationCard) {
+                            navigationCard.classList.add('navigating');
+                        }
+                    } else {
+                        // 启动失败,恢复按钮
+                        startBtn.disabled = false;
+                        startBtn.textContent = originalText;
+                    }
+                } catch (e) {
+                    console.error('[NavUI] 启动导航异常:', e);
+                    startBtn.disabled = false;
+                    startBtn.textContent = originalText;
+                    alert('启动导航失败,请重试');
+                }
+            });
+            console.log('[NavUI] ✓ 开始导航按钮已绑定');
+        }
+    }
+
+    /**
+     * 绑定路线规划按钮
+     */
+    function bindRoutePlanningButtons() {
+        // 起点输入框点击
+        const startInput = document.getElementById('nav-start-location');
+        if (startInput) {
+            startInput.addEventListener('click', function() {
+                console.log('[NavUI] 点击起点输入框');
+                navigateToPointSelection('start');
+            });
+        }
+
+        // 终点输入框点击
+        const endInput = document.getElementById('nav-end-location');
+        if (endInput) {
+            endInput.addEventListener('click', function() {
+                console.log('[NavUI] 点击终点输入框');
+                navigateToPointSelection('end');
+            });
+        }
+
+        // 添加途经点按钮
+        const addWaypointBtn = document.getElementById('nav-add-waypoint-btn');
+        if (addWaypointBtn) {
+            addWaypointBtn.addEventListener('click', function() {
+                console.log('[NavUI] 点击添加途经点');
+
+                // 检查途经点数量
+                const waypointsContainer = document.getElementById('nav-waypoints-container');
+                let currentCount = 0;
+                if (waypointsContainer) {
+                    currentCount = waypointsContainer.querySelectorAll('.waypoint-input').length;
+                }
+
+                if (currentCount >= 5) {
+                    alert('最多只能添加 5 个途经点');
+                    return;
+                }
+
+                navigateToPointSelection('waypoint');
+            });
+        }
+
+        // 交换起终点按钮
+        const swapBtn = document.getElementById('nav-swap-btn');
+        if (swapBtn) {
+            swapBtn.addEventListener('click', function() {
+                console.log('[NavUI] 点击交换起终点');
+                swapStartAndEnd();
+            });
+        }
+
+        console.log('[NavUI] ✓ 路线规划按钮已绑定');
+    }
+
+    /**
+     * 绑定退出/完成按钮
+     */
+    function bindExitButtons() {
+        // 底部卡片关闭按钮
+        const closeBtn = document.getElementById('destination-close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function() {
+                console.log('[NavUI] 点击关闭导航');
+                showExitNavigationModal();
+            });
+        }
+
+        // 退出导航-取消
+        const exitCancelBtn = document.getElementById('exit-cancel-btn');
+        if (exitCancelBtn) {
+            exitCancelBtn.addEventListener('click', function() {
+                hideExitNavigationModal();
+            });
+        }
+
+        // 退出导航-确认
+        const exitConfirmBtn = document.getElementById('exit-confirm-btn');
+        if (exitConfirmBtn) {
+            exitConfirmBtn.addEventListener('click', function() {
+                hideExitNavigationModal();
+                NavCore.stopNavigation();
+
+                // 隐藏提示卡片
+                hideTipCard();
+
+                // 恢复底部卡片状态
+                const navigationCard = document.getElementById('navigation-card');
+                if (navigationCard) {
+                    navigationCard.classList.remove('navigating');
+                }
+
+                // 保存地图状态并返回首页
+                saveNavigationMapState();
+                window.location.href = 'index.html';
+            });
+        }
+
+        // 导航完成-返回首页
+        const completeFinishBtn = document.getElementById('complete-finish-btn');
+        if (completeFinishBtn) {
+            completeFinishBtn.addEventListener('click', function() {
+                hideNavigationCompleteModal();
+                saveNavigationMapState();
+                window.location.href = 'index.html';
+            });
+        }
+
+        console.log('[NavUI] ✓ 退出/完成按钮已绑定');
+    }
+
+    /**
+     * 绑定底部导航栏
+     */
+    function bindBottomNavigation() {
+        // 这里可以绑定底部导航栏的事件
+        // 如果有的话
+        console.log('[NavUI] ✓ 底部导航栏已绑定');
+    }
+
+    /**
+     * 绑定键盘快捷键
+     */
+    function bindKeyboardShortcuts() {
+        document.addEventListener('keydown', function(e) {
+            // 按 C 键模拟导航完成（测试用）
+            if (e.key === 'c' || e.key === 'C') {
+                const status = NavCore.getStatus();
+                if (status.isNavigating) {
+                    console.log('[NavUI] 键盘快捷键：模拟导航完成');
+                    showNavigationCompleteModal();
+                }
+            }
+        });
+        console.log('[NavUI] ✓ 键盘快捷键已绑定');
+    }
+
+    // ========== UI操作函数 ==========
+
+    /**
+     * 跳转到点位选择页面
+     * @param {string} type - 'start' | 'end' | 'waypoint'
+     */
+    function navigateToPointSelection(type) {
+        try {
+            // 获取当前路线数据
+            const startInput = document.getElementById('nav-start-location');
+            const endInput = document.getElementById('nav-end-location');
+            const waypointsContainer = document.getElementById('nav-waypoints-container');
+
+            const startValue = startInput ? startInput.value : '';
+            const endValue = endInput ? endInput.value : '';
+
+            const waypoints = [];
+            if (waypointsContainer) {
+                const waypointInputs = waypointsContainer.querySelectorAll('.waypoint-input');
+                waypointInputs.forEach(input => {
+                    if (input.value) {
+                        waypoints.push(input.value);
+                    }
+                });
+            }
+
+            // 构建路线数据
+            const data = {
+                startLocation: startValue,
+                endLocation: endValue,
+                waypoints: waypoints,
+                inputType: type
+            };
+
+            if (type === 'waypoint') {
+                data.autoAddWaypoint = true;
+            } else {
+                data.activeInput = type === 'start' ? 'nav-start-location' : 'nav-end-location';
+            }
+
+            // 保存到 sessionStorage
+            NavDataStore.setRoutePlanningData(data);
+            NavDataStore.setPointSelectionReferrer('navigation.html');
+
+            // 跳转
+            window.location.href = 'point-selection.html';
+        } catch (e) {
+            console.error('[NavUI] 跳转到点位选择页面失败:', e);
+        }
+    }
+
+    /**
+     * 交换起点和终点
+     */
+    function swapStartAndEnd() {
+        try {
+            const startInput = document.getElementById('nav-start-location');
+            const endInput = document.getElementById('nav-end-location');
+
+            if (!startInput || !endInput) return;
+
+            const temp = startInput.value;
+            startInput.value = endInput.value;
+            endInput.value = temp;
+
+            // 更新路线数据
+            const routeData = NavCore.getRouteData();
+            if (routeData) {
+                const tempData = routeData.start;
+                routeData.start = routeData.end;
+                routeData.end = tempData;
+
+                NavDataStore.setRoute(routeData);
+            }
+
+            // 重新规划路线（需要核心模块支持）
+            console.log('[NavUI] 起终点已交换');
+        } catch (e) {
+            console.error('[NavUI] 交换起终点失败:', e);
+        }
+    }
+
+    /**
+     * 显示导航提示卡片
+     */
+    function showTipCard() {
+        const tipCard = document.getElementById('navigation-tip-card');
+        if (tipCard) {
+            tipCard.classList.add('active');
+        }
+    }
+
+    /**
+     * 隐藏导航提示卡片
+     */
+    function hideTipCard() {
+        const tipCard = document.getElementById('navigation-tip-card');
+        if (tipCard) {
+            tipCard.classList.remove('active');
+        }
+    }
+
+    /**
+     * 更新导航提示卡片内容
+     * @param {Object} guidance - 提示信息 { type, action, distance, message }
+     */
+    function updateNavigationTip(guidance) {
+        try {
+            // 更新转向图标
+            const directionImg = document.getElementById('tip-direction-img');
+            if (directionImg) {
+                const iconMap = {
+                    'left': 'images/工地数字导航小程序切图/司机/2X/导航/左转.png',
+                    'right': 'images/工地数字导航小程序切图/司机/2X/导航/右转.png',
+                    'uturn': 'images/工地数字导航小程序切图/司机/2X/导航/掉头.png',
+                    'straight': 'images/工地数字导航小程序切图/司机/2X/导航/直行.png'
+                };
+                directionImg.src = iconMap[guidance.type] || iconMap['straight'];
+                directionImg.alt = guidance.action;
+            }
+
+            // 更新距离
+            const distanceAhead = document.getElementById('tip-distance-ahead');
+            if (distanceAhead) {
+                distanceAhead.textContent = guidance.distance;
+            }
+
+            // 更新动作文本
+            const actionText = document.getElementById('tip-action-text');
+            if (actionText) {
+                actionText.textContent = guidance.action;
+            }
+
+            // 更新当前段的剩余距离和时间
+            updateSegmentRemaining();
+
+        } catch (e) {
+            console.error('[NavUI] 更新导航提示失败:', e);
+        }
+    }
+
+    /**
+     * 更新当前段的剩余距离和时间（上方提示栏小字）
+     */
+    function updateSegmentRemaining() {
+        try {
+            const pointSet = window.currentSegmentPointSet;
+            const currentIndex = window.currentSnappedIndex || 0;
+
+            if (!pointSet || pointSet.length === 0) return;
+
+            // 计算当前段剩余距离
+            let remainingDistance = 0;
+            for (let i = currentIndex; i < pointSet.length - 1; i++) {
+                const p1 = pointSet[i].position;
+                const p2 = pointSet[i + 1].position;
+                const lat1 = Array.isArray(p1) ? p1[1] : p1.lat;
+                const lng1 = Array.isArray(p1) ? p1[0] : p1.lng;
+                const lat2 = Array.isArray(p2) ? p2[1] : p2.lat;
+                const lng2 = Array.isArray(p2) ? p2[0] : p2.lng;
+
+                // Haversine公式
+                const R = 6371000;
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLng = (lng2 - lng1) * Math.PI / 180;
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                          Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                remainingDistance += R * c;
+            }
+
+            // 计算预计时间（假设步行速度1.2m/s）
+            const remainingTime = Math.ceil(remainingDistance / 1.2 / 60); // 分钟
+
+            // 更新UI
+            const remainingDistanceEl = document.getElementById('tip-remaining-distance');
+            const remainingUnitEl = document.getElementById('tip-remaining-unit');
+            const remainingTimeEl = document.getElementById('tip-estimated-time');
+
+            if (remainingDistanceEl) {
+                if (remainingDistance >= 1000) {
+                    remainingDistanceEl.textContent = (remainingDistance / 1000).toFixed(1);
+                    if (remainingUnitEl) remainingUnitEl.textContent = '公里';
+                } else {
+                    remainingDistanceEl.textContent = Math.round(remainingDistance);
+                    if (remainingUnitEl) remainingUnitEl.textContent = '米';
+                }
+            }
+
+            if (remainingTimeEl) {
+                remainingTimeEl.textContent = remainingTime;
+            }
+
+            // 同时更新下方卡片的总距离和时间（到终点）
+            updateTotalToDestination(currentIndex);
+
+        } catch (e) {
+            console.error('[NavUI] 更新段剩余距离/时间失败:', e);
+        }
+    }
+
+    /**
+     * 更新到终点的总距离和时间（下方卡片）
+     * @param {number} currentIndex - 当前点索引（段内相对索引）
+     */
+    function updateTotalToDestination(currentIndex) {
+        try {
+            // 获取当前路线数据
+            const routeData = NavDataStore.getRoute();
+            if (!routeData || !routeData.end) return;
+
+            // 计算总距离：当前段剩余 + 后续所有段
+            let totalDistance = 0;
+
+            // 1. 当前段剩余距离
+            const currentSegmentPointSet = window.currentSegmentPointSet;
+            if (currentSegmentPointSet) {
+                for (let i = currentIndex; i < currentSegmentPointSet.length - 1; i++) {
+                    const p1 = currentSegmentPointSet[i].position;
+                    const p2 = currentSegmentPointSet[i + 1].position;
+                    totalDistance += haversineDistance(p1, p2);
+                }
+            }
+
+            // 2. 后续所有段的距离
+            const fullPointSet = window.navigationPointSet;
+            const segmentRanges = window.segmentRanges || [];
+            const currentSegmentIndex = window.currentSegmentIndex || 0;
+
+            if (fullPointSet && segmentRanges.length > 0) {
+                // 遍历后续段
+                for (let segIdx = currentSegmentIndex + 1; segIdx < segmentRanges.length; segIdx++) {
+                    const segment = segmentRanges[segIdx];
+                    for (let i = segment.start; i < segment.end && i < fullPointSet.length - 1; i++) {
+                        const p1 = fullPointSet[i].position;
+                        const p2 = fullPointSet[i + 1].position;
+                        totalDistance += haversineDistance(p1, p2);
+                    }
+                }
+            }
+
+            // 计算预计时间（假设步行速度1.2m/s）
+            const totalTime = Math.ceil(totalDistance / 1.2 / 60); // 分钟
+
+            // 更新下方卡片UI
+            const destDistanceEl = document.getElementById('destination-distance');
+            const destTimeEl = document.getElementById('destination-time');
+            const destNameEl = document.getElementById('destination-name');
+
+            if (destNameEl && routeData.end.name) {
+                destNameEl.textContent = routeData.end.name;
+            }
+
+            if (destDistanceEl) {
+                destDistanceEl.textContent = Math.round(totalDistance);
+            }
+
+            if (destTimeEl) {
+                destTimeEl.textContent = totalTime;
+            }
+
+        } catch (e) {
+            console.error('[NavUI] 更新总距离/时间失败:', e);
+        }
+    }
+
+    /**
+     * Haversine距离计算辅助函数
+     * @param {Array|Object} p1 - 点1 [lng, lat] 或 {lng, lat}
+     * @param {Array|Object} p2 - 点2 [lng, lat] 或 {lng, lat}
+     * @returns {number} 距离（米）
+     */
+    function haversineDistance(p1, p2) {
+        const lat1 = Array.isArray(p1) ? p1[1] : p1.lat;
+        const lng1 = Array.isArray(p1) ? p1[0] : p1.lng;
+        const lat2 = Array.isArray(p2) ? p2[1] : p2.lat;
+        const lng2 = Array.isArray(p2) ? p2[0] : p2.lng;
+
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    /**
+     * 显示退出导航确认弹窗
+     */
+    function showExitNavigationModal() {
+        const modal = document.getElementById('exit-navigation-modal');
+        if (modal) {
+            modal.style.display = 'flex';
+        }
+    }
+
+    /**
+     * 隐藏退出导航确认弹窗
+     */
+    function hideExitNavigationModal() {
+        const modal = document.getElementById('exit-navigation-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    /**
+     * 显示导航完成弹窗
+     */
+    function showNavigationCompleteModal() {
+        const modal = document.getElementById('navigation-complete-modal');
+        if (modal) {
+            // 计算总距离和时间（可以从核心模块获取）
+            const totalDistance = 0; // TODO: 从核心模块获取
+            const totalTime = 0; // TODO: 从核心模块获取
+
+            // 更新弹窗内容
+            const distanceElem = document.getElementById('complete-total-distance');
+            const timeElem = document.getElementById('complete-total-time');
+
+            if (distanceElem) {
+                distanceElem.textContent = (totalDistance / 1000).toFixed(1);
+            }
+            if (timeElem) {
+                timeElem.textContent = Math.ceil(totalTime / 60);
+            }
+
+            modal.style.display = 'flex';
+        }
+    }
+
+    /**
+     * 隐藏导航完成弹窗
+     */
+    function hideNavigationCompleteModal() {
+        const modal = document.getElementById('navigation-complete-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+    }
+
+    /**
+     * 保存地图状态（用于返回首页）
+     */
+    function saveNavigationMapState() {
+        try {
+            const map = NavRenderer.getMap();
+            if (!map) return;
+
+            const zoom = map.getZoom();
+            const center = map.getCenter();
+
+            // 计算KML边界（如果有）
+            const kmlData = NavDataStore.getKMLLayers();
+            let kmlBounds = null;
+
+            if (kmlData && kmlData.length > 0) {
+                const allCoords = [];
+                kmlData.forEach(layer => {
+                    if (layer.features) {
+                        layer.features.forEach(feature => {
+                            if (feature.geometry && feature.geometry.coordinates) {
+                                if (feature.type === '点') {
+                                    allCoords.push(feature.geometry.coordinates);
+                                } else if (feature.type === '线' || feature.type === '面') {
+                                    allCoords.push(...feature.geometry.coordinates);
+                                }
+                            }
+                        });
+                    }
+                });
+
+                if (allCoords.length > 0) {
+                    let minLng = allCoords[0][0], maxLng = allCoords[0][0];
+                    let minLat = allCoords[0][1], maxLat = allCoords[0][1];
+
+                    allCoords.forEach(coord => {
+                        minLng = Math.min(minLng, coord[0]);
+                        maxLng = Math.max(maxLng, coord[0]);
+                        minLat = Math.min(minLat, coord[1]);
+                        maxLat = Math.max(maxLat, coord[1]);
+                    });
+
+                    kmlBounds = { minLng, maxLng, minLat, maxLat };
+                }
+            }
+
+            const mapState = {
+                zoom: zoom,
+                center: [center.lng, center.lat],
+                angle: 0,
+                fromNavigation: true,
+                kmlBounds: kmlBounds
+            };
+
+            NavDataStore.setMapState(mapState);
+            console.log('[NavUI] 地图状态已保存');
+        } catch (e) {
+            console.error('[NavUI] 保存地图状态失败:', e);
+        }
+    }
+
+    /**
+     * 更新路线信息显示
+     * @param {Object} routeInfo - { distance, time }
+     */
+    function updateRouteInfo(routeInfo) {
+        try {
+            const distanceElem = document.getElementById('route-distance');
+            const timeElem = document.getElementById('route-time');
+
+            if (distanceElem && routeInfo.distance !== undefined) {
+                const distance = routeInfo.distance;
+                if (distance < 1000) {
+                    distanceElem.textContent = Math.round(distance);
+                    const unitElem = distanceElem.nextElementSibling;
+                    if (unitElem) unitElem.textContent = '米';
+                } else {
+                    distanceElem.textContent = (distance / 1000).toFixed(1);
+                    const unitElem = distanceElem.nextElementSibling;
+                    if (unitElem) unitElem.textContent = '公里';
+                }
+            }
+
+            if (timeElem && routeInfo.time !== undefined) {
+                const minutes = Math.ceil(routeInfo.time / 60);
+                timeElem.textContent = minutes;
+            }
+        } catch (e) {
+            console.error('[NavUI] 更新路线信息失败:', e);
+        }
+    }
+
+    /**
+     * 更新目的地信息显示
+     * @param {Object} targetInfo - { name, type, distance, time }
+     */
+    function updateDestinationInfo(targetInfo) {
+        try {
+            const orgElem = document.getElementById('destination-org');
+            const nameElem = document.getElementById('destination-name');
+            const distanceElem = document.getElementById('destination-distance');
+            const timeElem = document.getElementById('destination-time');
+
+            if (orgElem && targetInfo.type) {
+                const typeLabels = {
+                    'start': '起点',
+                    'waypoint': '途径点',
+                    'end': '终点'
+                };
+                orgElem.textContent = typeLabels[targetInfo.type] || '目的地';
+            }
+
+            if (nameElem && targetInfo.name) {
+                nameElem.textContent = targetInfo.name;
+            }
+
+            if (distanceElem && targetInfo.distance !== undefined) {
+                distanceElem.textContent = Math.round(targetInfo.distance);
+            }
+
+            if (timeElem && targetInfo.time !== undefined) {
+                const minutes = Math.ceil(targetInfo.time / 60);
+                timeElem.textContent = minutes;
+            }
+        } catch (e) {
+            console.error('[NavUI] 更新目的地信息失败:', e);
+        }
+    }
+
+    /**
+     * 恢复路线规划数据（从sessionStorage）
+     */
+    function restoreRoutePlanningData() {
+        try {
+            // 【修复】直接读取 point-selection.js 保存的完整路线数据
+            const routeData = NavDataStore.getRoute();
+            if (!routeData) {
+                console.warn('[NavUI] 没有找到路线数据');
+                return;
+            }
+
+            console.log('[NavUI] 恢复路线数据:', routeData);
+
+            const startInput = document.getElementById('nav-start-location');
+            const endInput = document.getElementById('nav-end-location');
+
+            // 填充起点和终点
+            if (startInput && routeData.start) {
+                startInput.value = routeData.start.name || '';
+            }
+            if (endInput && routeData.end) {
+                endInput.value = routeData.end.name || '';
+            }
+
+            // 恢复途经点
+            if (routeData.waypoints && routeData.waypoints.length > 0) {
+                const waypointsContainer = document.getElementById('nav-waypoints-container');
+                if (waypointsContainer) {
+                    waypointsContainer.innerHTML = '';
+                    routeData.waypoints.forEach(waypoint => {
+                        addWaypointToUI(waypoint.name || waypoint);
+                    });
+                }
+            }
+
+            // 路线数据已经完整（包含坐标），无需再次转换
+            console.log('[NavUI] ✓ 路线数据已恢复完成');
+        } catch (e) {
+            console.error('[NavUI] 恢复路线规划数据失败:', e);
+        }
+    }
+
+    /**
+     * 添加途经点到UI
+     * @param {string} waypointName
+     */
+    function addWaypointToUI(waypointName) {
+        try {
+            const waypointsContainer = document.getElementById('nav-waypoints-container');
+            if (!waypointsContainer) return;
+
+            const waypointId = 'nav-waypoint-' + Date.now();
+            const waypointRow = document.createElement('div');
+            waypointRow.className = 'waypoint-row';
+            waypointRow.id = waypointId;
+            waypointRow.innerHTML = `
+                <div class="location-item" style="flex: 1;">
+                    <i class="fas fa-dot-circle" style="color: #FF9800;"></i>
+                    <input type="text" placeholder="添加途经点" class="waypoint-input" readonly value="${waypointName}">
+                </div>
+                <div class="waypoint-actions">
+                    <button class="remove-waypoint-btn" data-id="${waypointId}">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+
+            waypointsContainer.appendChild(waypointRow);
+
+            // 绑定删除按钮
+            const removeBtn = waypointRow.querySelector('.remove-waypoint-btn');
+            removeBtn.addEventListener('click', function() {
+                waypointRow.remove();
+                console.log('[NavUI] 途经点已删除:', waypointId);
+            });
+
+            console.log('[NavUI] 途经点已添加:', waypointName);
+        } catch (e) {
+            console.error('[NavUI] 添加途经点失败:', e);
+        }
+    }
+
+    // 公开API
+    return {
+        init,
+        showTipCard,
+        hideTipCard,
+        updateNavigationTip,
+        showExitNavigationModal,
+        hideExitNavigationModal,
+        showNavigationCompleteModal,
+        hideNavigationCompleteModal,
+        updateRouteInfo,
+        updateDestinationInfo,
+        restoreRoutePlanningData,
+        addWaypointToUI
+    };
+})();
+
+// 导出到全局
+window.NavUI = NavUI;
+
+// 导出函数到全局（兼容旧代码）
+window.showNavigationCompleteModal = NavUI.showNavigationCompleteModal;
+window.hideNavigationCompleteModal = NavUI.hideNavigationCompleteModal;
+window.showExitNavigationModal = NavUI.showExitNavigationModal;
+window.hideExitNavigationModal = NavUI.hideExitNavigationModal;
