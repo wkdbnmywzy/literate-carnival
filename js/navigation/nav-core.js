@@ -1528,8 +1528,9 @@ const NavCore = (function() {
      * GPS位置更新回调
      * @param {Array} position - [lng, lat]
      * @param {number} accuracy - 精度（米）
+     * @param {number} gpsHeading - GPS方向（度）
      */
-    function onGPSUpdate(position, accuracy) {
+    function onGPSUpdate(position, accuracy, gpsHeading = 0) {
         try {
             if (!isNavigating) return;
 
@@ -1584,6 +1585,7 @@ const NavCore = (function() {
             const snapped = findNearestPointInSet(position);
 
             let displayPosition = position; // 默认显示GPS原始位置
+            let displayHeading = gpsHeading; // 默认显示GPS方向
 
             if (snapped) {
                 // 吸附成功
@@ -1610,6 +1612,9 @@ const NavCore = (function() {
                 // 更新已走路线（灰色）
                 NavRenderer.updatePassedRoute(currentSnappedIndex, displayPosition);
 
+                // 计算路网方向
+                const roadBearing = calculateCurrentBearing(currentSnappedIndex);
+
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
                 if (turningCheck && turningCheck.needRotate) {
@@ -1619,6 +1624,11 @@ const NavCore = (function() {
                 } else {
                     // 【优化】直行时只移动中心，不旋转地图
                     NavRenderer.setCenterOnly(displayPosition, true);
+                }
+
+                // 如果已到达起点（在绿色路网上），使用路网方向
+                if (hasReachedStart) {
+                    displayHeading = roadBearing;
                 }
             } else {
                 // 未吸附，使用GPS原始位置
@@ -1634,7 +1644,8 @@ const NavCore = (function() {
             }
 
             // 2. 更新用户位置标记（使用吸附后的位置，平滑移动，传递导航状态）
-            NavRenderer.updateUserMarker(displayPosition, 0, true, hasReachedStart);
+            // 如果未到达起点，使用GPS方向；如果到达起点且吸附，使用路网方向
+            NavRenderer.updateUserMarker(displayPosition, displayHeading, true, hasReachedStart);
 
             // 3. 更新精度圈（仍使用GPS原始位置）
             NavRenderer.updateAccuracyCircle(position, accuracy);
