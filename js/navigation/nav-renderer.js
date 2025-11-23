@@ -33,8 +33,8 @@ const NavRenderer = (function() {
             strokeWeight: 8,         // 绿色路线宽度：8像素
             strokeOpacity: 1.0,      // 完全不透明
             zIndex: 185,             // 未走路线在下层
-            borderWeight: 1,         // 边框宽度：1像素
-            borderColor: '#7FD89F'   // 浅绿色边框
+            borderWeight: 2,         // 边框宽度：2像素 (加宽一点)
+            borderColor: '#007A33'   // 深绿色边框 (模拟阴影/立体感)
         },
         passed: {
             strokeColor: '#999999',
