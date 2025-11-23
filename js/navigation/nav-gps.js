@@ -356,6 +356,7 @@ const NavGPS = (function() {
             let lng = position.coords.longitude;
             let lat = position.coords.latitude;
             const accuracy = position.coords.accuracy || 10;
+            const heading = position.coords.heading || 0; // 获取设备方向
 
             const converted = convertCoordinates(lng, lat);
             lng = converted[0];
@@ -376,7 +377,7 @@ const NavGPS = (function() {
             lastUpdateTime = Date.now();
 
             if (onPositionUpdate) {
-                onPositionUpdate(pos, accuracy);
+                onPositionUpdate(pos, accuracy, heading);
             }
         } catch (e) {
             console.error('[NavGPS] 处理GPS位置失败:', e);
