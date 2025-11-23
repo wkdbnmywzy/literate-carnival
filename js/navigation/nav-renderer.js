@@ -425,6 +425,12 @@ const NavRenderer = (function() {
                     map: map
                 });
             } else {
+                // 确保标记在地图上
+                if (!userMarker.getMap()) {
+                    console.warn('[NavRenderer] 用户标记不在地图上，重新添加');
+                    userMarker.setMap(map);
+                }
+                
                 // 更新图标（如果状态改变）
                 const currentIcon = userMarker.getIcon();
                 if (currentIcon && currentIcon.getImageUrl() !== iconImage) {
@@ -439,13 +445,33 @@ const NavRenderer = (function() {
                 // 更新位置
                 if (smooth) {
                     // 平滑移动（使用高德的 moveTo 方法）
-                    userMarker.moveTo(position, {
-                        duration: 300,  // 300毫秒平滑移动
-                        delay: 0
-                    });
+                    if (typeof userMarker.moveTo === 'function') {
+                        userMarker.moveTo(position, {
+                            duration: 300,  // 300毫秒平滑移动
+                            delay: 0
+                        });
+                    } else {
+                        console.warn('[NavRenderer] moveTo方法不存在，使用setPosition');
+                        userMarker.setPosition(position);
+                    }
                 } else {
                     // 直接跳转
                     userMarker.setPosition(position);
+                }
+                
+                // 验证位置是否更新成功（仅在调试时）
+                if (false) { // 设为true可启用调试
+                    const currentPos = userMarker.getPosition();
+                    if (currentPos) {
+                        const posArray = [currentPos.lng, currentPos.lat];
+                        const distance = Math.sqrt(
+                            Math.pow(posArray[0] - position[0], 2) + 
+                            Math.pow(posArray[1] - position[1], 2)
+                        ) * 111000;
+                        if (distance > 1) {
+                            console.log('[NavRenderer] 位置更新验证: 偏差', distance.toFixed(2), '米');
+                        }
+                    }
                 }
             }
 

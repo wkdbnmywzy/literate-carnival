@@ -366,32 +366,87 @@ const NavUI = (function() {
         try {
             const pointSet = window.currentSegmentPointSet;
             const currentIndex = window.currentSnappedIndex || 0;
+            const segmentRanges = window.segmentRanges || [];
+            const currentSegmentIndex = window.currentSegmentIndex || 0;
+            const hasReachedStart = window.hasReachedStart || false;
 
             if (!pointSet || pointSet.length === 0) return;
 
-            // 计算当前段剩余距离
+            // 确定当前段的目标名称
+            let targetLabel = '剩余';
             let remainingDistance = 0;
-            for (let i = currentIndex; i < pointSet.length - 1; i++) {
-                const p1 = pointSet[i].position;
-                const p2 = pointSet[i + 1].position;
-                const lat1 = Array.isArray(p1) ? p1[1] : p1.lat;
-                const lng1 = Array.isArray(p1) ? p1[0] : p1.lng;
-                const lat2 = Array.isArray(p2) ? p2[1] : p2.lat;
-                const lng2 = Array.isArray(p2) ? p2[0] : p2.lng;
+            const routeData = NavDataStore.getRoute();
+            
+            if (!hasReachedStart) {
+                // 未到达起点，使用到起点的实际距离
+                targetLabel = '距离起点';
+                
+                // 从全局变量获取到起点的距离（由nav-core计算）
+                if (typeof window.distanceToStart !== 'undefined') {
+                    remainingDistance = window.distanceToStart;
+                } else {
+                    // 降级：计算当前位置到起点的直线距离
+                    const currentPos = NavDataStore.getCurrentPosition();
+                    if (currentPos && routeData && routeData.start && routeData.start.position) {
+                        const startPos = routeData.start.position;
+                        const lat1 = currentPos[1];
+                        const lng1 = currentPos[0];
+                        const lat2 = startPos[1];
+                        const lng2 = startPos[0];
+                        
+                        const R = 6371000;
+                        const dLat = (lat2 - lat1) * Math.PI / 180;
+                        const dLng = (lng2 - lng1) * Math.PI / 180;
+                        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                                  Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                        remainingDistance = R * c;
+                    }
+                }
+            } else {
+                // 已到达起点，根据当前段确定目标
+                const isLastSegment = currentSegmentIndex === segmentRanges.length - 1;
+                const hasWaypoints = routeData && routeData.waypoints && Array.isArray(routeData.waypoints) && routeData.waypoints.length > 0;
+                
+                if (!hasWaypoints || isLastSegment) {
+                    // 没有途径点，或者是最后一段
+                    targetLabel = '距离终点';
+                } else {
+                    // 有途径点且不是最后一段
+                    const waypointIndex = currentSegmentIndex;
+                    targetLabel = `距离途径点${waypointIndex + 1}`;
+                }
+                
+                // 计算当前段剩余距离
+                for (let i = currentIndex; i < pointSet.length - 1; i++) {
+                    const p1 = pointSet[i].position;
+                    const p2 = pointSet[i + 1].position;
+                    const lat1 = Array.isArray(p1) ? p1[1] : p1.lat;
+                    const lng1 = Array.isArray(p1) ? p1[0] : p1.lng;
+                    const lat2 = Array.isArray(p2) ? p2[1] : p2.lat;
+                    const lng2 = Array.isArray(p2) ? p2[0] : p2.lng;
 
-                // Haversine公式
-                const R = 6371000;
-                const dLat = (lat2 - lat1) * Math.PI / 180;
-                const dLng = (lng2 - lng1) * Math.PI / 180;
-                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                          Math.sin(dLng / 2) * Math.sin(dLng / 2);
-                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-                remainingDistance += R * c;
+                    // Haversine公式
+                    const R = 6371000;
+                    const dLat = (lat2 - lat1) * Math.PI / 180;
+                    const dLng = (lng2 - lng1) * Math.PI / 180;
+                    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    remainingDistance += R * c;
+                }
             }
 
             // 计算预计时间（假设步行速度1.2m/s）
             const remainingTime = Math.ceil(remainingDistance / 1.2 / 60); // 分钟
+
+            // 更新目标标签
+            const remainingLabelEl = document.getElementById('tip-remaining-label');
+            if (remainingLabelEl) {
+                remainingLabelEl.textContent = targetLabel;
+            }
 
             // 更新UI
             const remainingDistanceEl = document.getElementById('tip-remaining-distance');

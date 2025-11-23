@@ -760,6 +760,12 @@ const NavCore = (function() {
 
             isNavigating = true;
             hasReachedStart = false;  // 重置到达起点状态
+            
+            // 隐藏主地图的selfMarker（避免与导航系统的userMarker冲突）
+            if (typeof window.selfMarker !== 'undefined' && window.selfMarker) {
+                window.selfMarker.hide();
+                console.log('[NavCore] 已隐藏主地图的selfMarker');
+            }
 
             // 隐藏完整路线，只显示第一段
             showCurrentSegmentRoute();
@@ -915,53 +921,39 @@ const NavCore = (function() {
     }
 
     /**
-     * 更新底部目的地信息
+     * 更新底部目的地信息（始终显示最终目的地）
      */
     function updateDestinationInfo() {
         try {
-            if (!routeData || segmentRanges.length === 0) return;
+            if (!routeData) return;
 
-            const currentSegment = segmentRanges[currentSegmentIndex];
-            const isLastSegment = currentSegmentIndex === segmentRanges.length - 1;
-
-            // 确定当前目标
+            // 底部卡片始终显示最终目的地（终点）
             const targetInfo = {
-                name: '',
-                type: '',
+                name: routeData.end.name || '终点',
+                type: 'end',
                 distance: 0,
                 time: 0
             };
 
-            if (isLastSegment) {
-                // 最后一段，目标是终点
-                targetInfo.name = routeData.end.name || '终点';
-                targetInfo.type = 'end';
-            } else {
-                // 不是最后一段，目标是下一个途径点
-                const waypointIndex = currentSegmentIndex;
-                if (routeData.waypoints && routeData.waypoints[waypointIndex]) {
-                    targetInfo.name = routeData.waypoints[waypointIndex].name || `途径点${waypointIndex + 1}`;
-                    targetInfo.type = 'waypoint';
-                } else {
-                    // 如果没有途径点数据，默认显示终点
-                    targetInfo.name = routeData.end.name || '终点';
-                    targetInfo.type = 'end';
-                }
-            }
-
-            // 计算到目标的距离和时间（当前段的总距离）
+            // 计算到终点的剩余距离和时间（从当前位置到终点的所有剩余路段）
             const pointSet = window.navigationPointSet;
-            if (pointSet && currentSegment) {
-                let segmentDistance = 0;
-                for (let i = currentSegment.start; i < currentSegment.end; i++) {
-                    if (i < pointSet.length - 1) {
-                        const p1 = pointSet[i].position;
-                        const p2 = pointSet[i + 1].position;
-                        segmentDistance += NavGPS.calculateDistance(p1, p2);
+            if (pointSet && segmentRanges.length > 0) {
+                let totalDistance = 0;
+                
+                // 累加当前段及后续所有段的距离
+                for (let segIdx = currentSegmentIndex; segIdx < segmentRanges.length; segIdx++) {
+                    const segment = segmentRanges[segIdx];
+                    for (let i = segment.start; i < segment.end; i++) {
+                        if (i < pointSet.length - 1) {
+                            const p1 = pointSet[i].position;
+                            const p2 = pointSet[i + 1].position;
+                            totalDistance += NavGPS.calculateDistance(p1, p2);
+                        }
                     }
                 }
-                targetInfo.distance = segmentDistance;
-                targetInfo.time = Math.ceil(segmentDistance / 1.2); // 假设步行速度1.2m/s
+                
+                targetInfo.distance = totalDistance;
+                targetInfo.time = Math.ceil(totalDistance / 1.2); // 假设步行速度1.2m/s
             }
 
             // 更新UI
@@ -1004,6 +996,12 @@ const NavCore = (function() {
 
             // 清除用户标记
             // NavRenderer.clearAll(); // 可选，根据需求
+            
+            // 恢复显示主地图的selfMarker
+            if (typeof window.selfMarker !== 'undefined' && window.selfMarker) {
+                window.selfMarker.show();
+                console.log('[NavCore] 已恢复显示主地图的selfMarker');
+            }
 
             console.log('[NavCore] ✓ 导航已停止');
         } catch (e) {
@@ -1565,6 +1563,9 @@ const NavCore = (function() {
             } else {
                 // 距离起点超过20米，实时更新指引线
                 NavRenderer.drawGuidanceLine(position, startPos);
+                
+                // 保存到起点的距离到全局变量（供UI使用）
+                window.distanceToStart = distanceToStart;
                 
                 // 更新上方提示栏：显示"请前往起点"
                 if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
