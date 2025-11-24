@@ -55,6 +55,88 @@ const NavCore = (function() {
     let lastPreStartOutput = null;              // 最近一次用于渲染的平滑位置
     const DEBUG_PRE_START_SMOOTH = true;        // 调试开关
 
+    // ===== 导航页设备方向监听（用于未到达起点阶段的朝向一致性） =====
+    let navDeviceHeading = null;                // 最近设备方向角（0-360）
+    let navOrientationActive = false;           // 是否已开启监听
+    let navOrientationHandler = null;           // 回调引用
+    const DEBUG_NAV_ORIENTATION = true;         // 调试日志开关
+
+    /**
+     * 初始化导航页面的设备方向监听（仅在导航开始时调用）
+     * iOS 13+ 需要权限请求；Android 使用 alpha 或 absolute alpha。
+     */
+    function initNavOrientationListener() {
+        if (navOrientationActive) return;
+
+        const ua = navigator.userAgent;
+        const isIOS = /iP(ad|hone|od)/i.test(ua);
+        const isAndroid = /Android/i.test(ua);
+
+        const startListener = () => {
+            navOrientationHandler = (e) => {
+                if (!e) return;
+                let heading = null;
+                // iOS 优先 webkitCompassHeading
+                if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
+                    heading = e.webkitCompassHeading; // 0=北 顺时针
+                    if (DEBUG_NAV_ORIENTATION) console.log('[导航朝向] webkitCompassHeading:', heading);
+                } else if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
+                    // alpha: 设备 z 轴旋转；若 absolute=true 则为地磁北参考
+                    heading = e.alpha;
+                    if (isAndroid && MapConfig && MapConfig.orientationConfig && MapConfig.orientationConfig.androidNeedsInversion) {
+                        heading = 360 - heading; // 反转
+                    }
+                    if (DEBUG_NAV_ORIENTATION) console.log('[导航朝向] alpha→heading:', heading, 'absolute=', e.absolute);
+                }
+
+                if (heading === null) return;
+                heading = heading % 360;
+                if (heading < 0) heading += 360;
+
+                // 固定偏移
+                if (MapConfig && MapConfig.orientationConfig && typeof MapConfig.orientationConfig.angleOffset === 'number') {
+                    heading = (heading + MapConfig.orientationConfig.angleOffset) % 360;
+                    if (heading < 0) heading += 360;
+                }
+
+                navDeviceHeading = heading;
+            };
+
+            // 绝对事件优先
+            if ('ondeviceorientationabsolute' in window) {
+                window.addEventListener('deviceorientationabsolute', navOrientationHandler, true);
+                if (DEBUG_NAV_ORIENTATION) console.log('[导航朝向] 使用 deviceorientationabsolute');
+            } else {
+                window.addEventListener('deviceorientation', navOrientationHandler, true);
+                if (DEBUG_NAV_ORIENTATION) console.log('[导航朝向] 使用 deviceorientation');
+            }
+            navOrientationActive = true;
+        };
+
+        try {
+            if (isIOS && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission().then(state => {
+                    if (state === 'granted') startListener(); else console.warn('[导航朝向] iOS 权限被拒绝');
+                }).catch(err => console.warn('[导航朝向] iOS 请求失败', err));
+            } else {
+                startListener();
+            }
+        } catch (e) {
+            console.warn('[导航朝向] 初始化失败', e);
+        }
+    }
+
+    /**
+     * 获取未到达起点阶段的融合朝向：优先 GPS heading，其次设备方向，最后回退0。
+     * @param {number} gpsHeading GPS提供的方向（可能无效）
+     * @returns {number}
+     */
+    function fusePreStartHeading(gpsHeading) {
+        if (Number.isFinite(gpsHeading) && gpsHeading >= 0) return gpsHeading % 360;
+        if (Number.isFinite(navDeviceHeading)) return navDeviceHeading;
+        return 0;
+    }
+
     /**
      * 预起点阶段位置平滑（简单加权平均）
      * 逻辑：
@@ -823,6 +905,9 @@ const NavCore = (function() {
             drawGuidanceToStart(currentPosition);
 
             console.log('[NavCore] 开始导航...');
+
+            // 初始化设备方向监听（用于未到达起点阶段朝向与首页一致）
+            initNavOrientationListener();
 
             isNavigating = true;
             hasReachedStart = false;  // 重置到达起点状态
@@ -1722,8 +1807,11 @@ const NavCore = (function() {
                 // 平滑位置（只影响展示，避免图标乱跳）
                 const smoothedPos = getSmoothedPreStartPosition(position);
 
-                // 更新用户位置标记（使用平滑位置，方向仍用gpsHeading）
-                NavRenderer.updateUserMarker(smoothedPos, gpsHeading, false, false);
+                // 融合朝向（设备方向优先补足 GPS heading 缺失）
+                const fusedHeading = fusePreStartHeading(gpsHeading);
+
+                // 更新用户位置标记（使用平滑位置 + 融合朝向）
+                NavRenderer.updateUserMarker(smoothedPos, fusedHeading, false, false);
 
                 // 实时绘制引导线（使用平滑位置起点，使线条更稳定）
                 NavRenderer.drawGuidanceLine(smoothedPos, startPos);
