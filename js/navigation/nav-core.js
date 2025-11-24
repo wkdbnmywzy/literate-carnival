@@ -53,12 +53,16 @@ const NavCore = (function() {
     let lastRawHeading = null;      // 上一次用于UI的有效朝向
     let lastPreStartPosition = null; // 起点前上一次GPS位置
     let orientationListening = false;
+    let dynamicAngleOffset = 0;     // 0或180，自动校准用
+    let calibrationLocked = false;
+    let lastSmoothedAngle = null;   // 起点前用于显示的平滑角度
 
     function initDeviceOrientationListener() {
         if (orientationListening) return;
         try {
-            const ua = navigator.userAgent;
+            const ua = navigator.userAgent || '';
             const isIOS = /iP(ad|hone|od)/i.test(ua);
+            const isAndroid = /Android/i.test(ua);
             const requestIOS = () => {
                 if (isIOS && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission().then(state => {
@@ -76,6 +80,12 @@ const NavCore = (function() {
                     } else if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
                         // 使用 absolute 优先；普通 alpha 需转换为顺时针
                         heading = e.absolute === true ? e.alpha : (360 - e.alpha);
+                        // Android 机型可能需要反转 absolute alpha
+                        try {
+                            if (e.absolute === true && isAndroid && MapConfig && MapConfig.orientationConfig && MapConfig.orientationConfig.androidNeedsInversion) {
+                                heading = 360 - heading;
+                            }
+                        } catch (invErr) {}
                     }
                     if (heading !== null) {
                         if (heading < 0) heading += 360;
@@ -93,6 +103,70 @@ const NavCore = (function() {
             requestIOS();
         } catch (e) {
             console.warn('[NavCore] 设备方向监听失败:', e);
+        }
+    }
+
+    // 角度归一化 0..360
+    function normAngle(a) {
+        if (a === null || a === undefined || isNaN(a)) return 0;
+        a = a % 360; if (a < 0) a += 360; return a;
+    }
+
+    // 角度绝对差 0..180
+    function angleAbsDiff(a, b) {
+        let d = ((a - b + 540) % 360) - 180; return Math.abs(d);
+    }
+
+    // 动态校准：对比设备heading与基于移动的bearing，稳定在180°附近则加180°偏移
+    function attemptAutoCalibrationPreStart(curr, heading) {
+        if (calibrationLocked) return;
+        if (!lastPreStartPosition) return;
+        if (heading === null || heading === undefined || isNaN(heading)) return;
+
+        const dist = haversineDistance(lastPreStartPosition[1], lastPreStartPosition[0], curr[1], curr[0]);
+        if (!isFinite(dist) || dist < 5) return; // 移动太小不校准
+
+        const bearing = calculateBearing(lastPreStartPosition, curr);
+        const diff = angleAbsDiff(heading, bearing);
+
+        if (diff >= 155) { // 接近180°
+            dynamicAngleOffset = 180;
+            calibrationLocked = true;
+        } else if (diff <= 25) { // 接近0°
+            dynamicAngleOffset = 0;
+            calibrationLocked = true;
+        }
+    }
+
+    // 结合配置与地图旋转修正最终用于图标的角度
+    function getAdjustedAngle(baseHeading) {
+        let angle = normAngle(baseHeading);
+        try {
+            let cfgOffset = 0;
+            if (MapConfig && MapConfig.orientationConfig && typeof MapConfig.orientationConfig.angleOffset === 'number') {
+                cfgOffset = MapConfig.orientationConfig.angleOffset;
+            }
+            const mapObj = (typeof NavRenderer !== 'undefined' && NavRenderer.getMap) ? NavRenderer.getMap() : null;
+            const mapRotation = mapObj && typeof mapObj.getRotation === 'function' ? (mapObj.getRotation() || 0) : 0;
+            angle = angle + cfgOffset + (dynamicAngleOffset || 0) - (mapRotation || 0);
+            angle = normAngle(angle);
+        } catch (e) {}
+        return angle;
+    }
+
+    // 角度EMA平滑（考虑环形角度，取最短差值）
+    function smoothAngleEMA(prevAngle, currAngle) {
+        try {
+            const alpha = (MapConfig && MapConfig.orientationConfig && typeof MapConfig.orientationConfig.smoothingAlpha === 'number')
+                ? Math.max(0, Math.min(1, MapConfig.orientationConfig.smoothingAlpha))
+                : 0.25; // 默认平滑强度
+            if (prevAngle === null || prevAngle === undefined || isNaN(prevAngle)) return normAngle(currAngle);
+            const prev = normAngle(prevAngle);
+            const curr = normAngle(currAngle);
+            const delta = ((curr - prev + 540) % 360) - 180; // -180..180 最近路径
+            return normAngle(prev + alpha * delta);
+        } catch (e) {
+            return normAngle(currAngle);
         }
     }
 
@@ -1723,8 +1797,15 @@ const NavCore = (function() {
                 lastRawHeading = headingForMarker;
                 lastPreStartPosition = position;
 
+                // 自动校准一次（防180°反向）
+                attemptAutoCalibrationPreStart(position, headingForMarker);
+                // 应用偏移与地图旋转，得到最终角度
+                const finalAngleRaw = getAdjustedAngle(headingForMarker);
+                // EMA 平滑
+                const finalAngle = smoothAngleEMA(lastSmoothedAngle, finalAngleRaw);
+                lastSmoothedAngle = finalAngle;
                 // 更新用户位置标记（使用稳定朝向）
-                NavRenderer.updateUserMarker(position, headingForMarker, false, false);
+                NavRenderer.updateUserMarker(position, finalAngle, false, false);
 
                 // 实时绘制引导线
                 NavRenderer.drawGuidanceLine(position, startPos);
