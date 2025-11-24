@@ -47,6 +47,72 @@ const NavCore = (function() {
 
     // 导航阶段状态
     let hasReachedStart = false;    // 是否已到达起点（用于切换位置图标）
+    // 未到达起点阶段的位置平滑缓存
+    let preStartHistory = [];
+    const PRE_START_MAX_HISTORY = 6;           // 位置历史最大长度
+    const PRE_START_SMOOTH_WINDOW_DIST = 4;     // 与上一位置距离<4m时纳入平滑
+    const PRE_START_MIN_OUTPUT_MOVE = 0.8;      // 平滑输出与上次输出差距>0.8m才更新（防止细微抖动）
+    let lastPreStartOutput = null;              // 最近一次用于渲染的平滑位置
+    const DEBUG_PRE_START_SMOOTH = true;        // 调试开关
+
+    /**
+     * 预起点阶段位置平滑（简单加权平均）
+     * 逻辑：
+     *  1. 若与上一采样点距离<窗口阈值=>加入历史，计算平均；否则重置历史。
+     *  2. 只有当平滑结果与上次输出距离>最小输出移动阈值才更新，避免图标细微抖动。
+     *  3. 历史长度限制，保持响应性。
+     * @param {Array} newPos [lng, lat]
+     * @returns {Array} 平滑后用于显示的位置
+     */
+    function getSmoothedPreStartPosition(newPos) {
+        if (!Array.isArray(newPos) || newPos.length < 2) return newPos;
+
+        if (preStartHistory.length === 0) {
+            preStartHistory.push(newPos);
+            lastPreStartOutput = newPos;
+            return newPos;
+        }
+
+        const lastSample = preStartHistory[preStartHistory.length - 1];
+        const distToLast = haversineDistance(newPos[1], newPos[0], lastSample[1], lastSample[0]);
+
+        // 若距离较小，加入平滑；否则视为跳跃，重置历史（避免拖影）
+        if (distToLast <= PRE_START_SMOOTH_WINDOW_DIST) {
+            preStartHistory.push(newPos);
+            if (preStartHistory.length > PRE_START_MAX_HISTORY) {
+                preStartHistory.shift();
+            }
+        } else {
+            preStartHistory = [newPos];
+        }
+
+        // 计算简单平均
+        let sumLng = 0, sumLat = 0;
+        for (let i = 0; i < preStartHistory.length; i++) {
+            sumLng += preStartHistory[i][0];
+            sumLat += preStartHistory[i][1];
+        }
+        const avgPos = [sumLng / preStartHistory.length, sumLat / preStartHistory.length];
+
+        if (!lastPreStartOutput) {
+            lastPreStartOutput = avgPos;
+            return avgPos;
+        }
+
+        const drift = haversineDistance(avgPos[1], avgPos[0], lastPreStartOutput[1], lastPreStartOutput[0]);
+        if (drift >= PRE_START_MIN_OUTPUT_MOVE) {
+            if (DEBUG_PRE_START_SMOOTH) {
+                console.log(`[预起点平滑] 输出更新: 原始=${newPos.map(n=>n.toFixed(6))} 平滑=${avgPos.map(n=>n.toFixed(6))} 样本=${preStartHistory.length} 距离变化=${drift.toFixed(2)}m`);
+            }
+            lastPreStartOutput = avgPos;
+        } else {
+            // 未超过输出移动阈值，保持上次输出位置
+            if (DEBUG_PRE_START_SMOOTH) {
+                console.log(`[预起点平滑] 抑制细微移动: 平滑漂移=${drift.toFixed(2)}m (<${PRE_START_MIN_OUTPUT_MOVE}m)`);
+            }
+        }
+        return lastPreStartOutput;
+    }
 
     /**
      * 初始化导航核心模块
@@ -1653,12 +1719,14 @@ const NavCore = (function() {
                     position[1], position[0],
                     startPos[1], startPos[0]
                 );
+                // 平滑位置（只影响展示，避免图标乱跳）
+                const smoothedPos = getSmoothedPreStartPosition(position);
 
-                // 更新用户位置标记（先更新，避免引导线绘制时用户标记未刷新）
-                NavRenderer.updateUserMarker(position, gpsHeading, false, false);
+                // 更新用户位置标记（使用平滑位置，方向仍用gpsHeading）
+                NavRenderer.updateUserMarker(smoothedPos, gpsHeading, false, false);
 
-                // 实时绘制引导线
-                NavRenderer.drawGuidanceLine(position, startPos);
+                // 实时绘制引导线（使用平滑位置起点，使线条更稳定）
+                NavRenderer.drawGuidanceLine(smoothedPos, startPos);
 
                 // 保存距离到全局变量
                 window.distanceToStart = distanceToStart;
@@ -1677,11 +1745,11 @@ const NavCore = (function() {
                     });
                 }
 
-                // 地图跟随用户位置
-                NavRenderer.setCenterOnly(position, true);
+                // 地图跟随：使用平滑位置保证视图稳定
+                NavRenderer.setCenterOnly(smoothedPos, true);
 
-                // 更新精度圈
-                NavRenderer.updateAccuracyCircle(position, accuracy);
+                // 精度圈：可用平滑后中心（视觉更稳定）
+                NavRenderer.updateAccuracyCircle(smoothedPos, accuracy);
 
                 // 未到达起点，后续逻辑不执行
                 return;
