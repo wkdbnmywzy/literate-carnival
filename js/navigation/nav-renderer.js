@@ -7,6 +7,8 @@
 const NavRenderer = (function() {
     'use strict';
 
+    const DEBUG_NAV_RENDERER = false; // 调试开关：位置与角度日志
+
     // 地图实例
     let map = null;
 
@@ -531,6 +533,14 @@ const NavRenderer = (function() {
             // 更新方向（如果需要且支持）
             if (heading !== null && heading !== undefined && typeof userMarker.setAngle === 'function') {
                 userMarker.setAngle(heading);
+            }
+
+            if (DEBUG_NAV_RENDERER) {
+                console.debug('[NavRenderer] marker update', {
+                    pos: position,
+                    heading,
+                    started: hasStarted
+                });
             }
 
             // 更新方向指示器（只在到达起点后显示）
