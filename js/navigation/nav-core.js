@@ -760,7 +760,9 @@ const NavCore = (function() {
 
             isNavigating = true;
             hasReachedStart = false;  // 重置到达起点状态
-            
+            window.hasReachedStart = false;  // 同步到全局
+            window.hasAnnouncedNavigationStart = false;  // 重置播报标志
+
             // 隐藏主地图的selfMarker（避免与导航系统的userMarker冲突）
             if (typeof window.selfMarker !== 'undefined' && window.selfMarker) {
                 window.selfMarker.hide();
@@ -978,6 +980,8 @@ const NavCore = (function() {
 
             isNavigating = false;
             hasReachedStart = false;  // 重置到达起点状态
+            window.hasReachedStart = false;  // 【修复】同步到全局
+            window.hasAnnouncedNavigationStart = false;  // 重置播报标志
 
             // 停止GPS监听
             NavGPS.stopWatch();
@@ -1088,7 +1092,7 @@ const NavCore = (function() {
     }
 
     /**
-     * 更新导航提示（核心逻辑）
+     * 更新导航提示（核心逻辑 - 简化版）
      * @param {number} currentIndex - 当前点索引（段内相对索引）
      */
     function updateNavigationGuidance(currentIndex) {
@@ -1098,11 +1102,7 @@ const NavCore = (function() {
 
             if (!pointSet || pointSet.length === 0) return;
 
-            // 3秒提示抑制（段间过渡除外）
             const now = Date.now();
-            if (!isInSegmentTransition && (now - lastGuidanceTime) < 3000) {
-                return;
-            }
 
             // 查找下一个转向点
             let nextTurnPoint = null;
@@ -1142,11 +1142,34 @@ const NavCore = (function() {
                 distanceToTurn += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
             }
 
-            // 检查两个转向点是否太近（<40米）
-            const isTooClose = distanceToTurn < 40;
+            // 计算两个转向点之间的总距离
+            let totalDistanceBetweenTurns = distanceToTurn;
+            if (currentIndex > 0) {
+                // 查找上一个转向点
+                let prevTurnPointIndex = -1;
+                for (let i = turningPoints.length - 1; i >= 0; i--) {
+                    if (turningPoints[i].pointIndex < currentIndex) {
+                        prevTurnPointIndex = turningPoints[i].pointIndex;
+                        break;
+                    }
+                }
+
+                if (prevTurnPointIndex >= 0) {
+                    // 计算从上一个转向点到当前转向点的总距离
+                    totalDistanceBetweenTurns = 0;
+                    for (let i = prevTurnPointIndex; i < nextTurnPoint.pointIndex && i < pointSet.length - 1; i++) {
+                        const p1 = pointSet[i].position;
+                        const p2 = pointSet[i + 1].position;
+                        totalDistanceBetweenTurns += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
+                    }
+                }
+            }
+
+            // 判断两个转向点是否太近（<5米不提前播报）
+            const isTooClose = totalDistanceBetweenTurns < 5;
 
             // 计算1/4距离
-            const quarterDistance = distanceToTurn / 4;
+            const quarterDistance = totalDistanceBetweenTurns / 4;
 
             // 获取转向动作文本
             const turnAction = getTurnActionText(nextTurnPoint.turnType);
@@ -1159,57 +1182,80 @@ const NavCore = (function() {
                 hasPromptedBefore = false;
             }
 
-            // 1. 到达转向点前一个点：直接提示转向
-            if (currentIndex === nextTurnPoint.pointIndex - 1) {
-                if (!hasPromptedBefore) {
-                    const guidance = {
-                        type: nextTurnPoint.turnType,
-                        action: turnAction,
-                        distance: Math.round(distanceToTurn),
-                        message: turnAction
-                    };
-                    updateGuidanceUI(guidance);
-                    NavTTS.speak(turnAction, { force: false });
-                    hasPromptedBefore = true;
-                    lastGuidanceTime = now;
+            // 掉头特殊处理：到达掉头点后播报
+            if (nextTurnPoint.turnType === 'uturn') {
+                // 1. 到达掉头点：直接播报掉头
+                if (currentIndex === nextTurnPoint.pointIndex) {
+                    if (!hasPromptedBefore) {
+                        const guidance = {
+                            type: nextTurnPoint.turnType,
+                            action: turnAction,
+                            distance: 0,
+                            message: turnAction
+                        };
+                        updateGuidanceUI(guidance);
+                        NavTTS.speak(turnAction, { force: true }); // 强制播报
+                        hasPromptedBefore = true;
+                        lastGuidanceTime = now;
+                    }
+                    return;
                 }
-                return;
-            }
 
-            // 2. 距离下一个转向点1/4距离：提示"前方XX米转向"（除非太近）
-            if (!isTooClose && distanceToTurn <= quarterDistance * 1.2 && distanceToTurn > quarterDistance * 0.8) {
-                if (!hasPrompted1_4) {
-                    const guidance = {
-                        type: nextTurnPoint.turnType,
-                        action: turnAction,
-                        distance: Math.round(distanceToTurn),
-                        message: `前方${Math.round(distanceToTurn)}米${turnAction}`
-                    };
-                    updateGuidanceUI(guidance);
-                    NavTTS.speak(`前方${Math.round(distanceToTurn)}米${turnAction}`, { force: false });
-                    hasPrompted1_4 = true;
-                    lastGuidanceTime = now;
+                // 2. 距离掉头点1/4距离：提前播报（除非太近）
+                if (!isTooClose && distanceToTurn <= quarterDistance * 1.2 && distanceToTurn > quarterDistance * 0.8) {
+                    if (!hasPrompted1_4) {
+                        const guidance = {
+                            type: nextTurnPoint.turnType,
+                            action: turnAction,
+                            distance: Math.round(distanceToTurn),
+                            message: `前方${Math.round(distanceToTurn)}米${turnAction}`
+                        };
+                        updateGuidanceUI(guidance);
+                        NavTTS.speak(`前方${Math.round(distanceToTurn)}米${turnAction}`, { force: true }); // 强制播报
+                        hasPrompted1_4 = true;
+                        lastGuidanceTime = now;
+                    }
+                    return;
                 }
-                return;
+            } else {
+                // 左转/右转处理：原触发条件（前一个点）
+                // 1. 到达转向点前一个点：直接播报转向
+                if (currentIndex === nextTurnPoint.pointIndex - 1) {
+                    if (!hasPromptedBefore) {
+                        const guidance = {
+                            type: nextTurnPoint.turnType,
+                            action: turnAction,
+                            distance: Math.round(distanceToTurn),
+                            message: turnAction
+                        };
+                        updateGuidanceUI(guidance);
+                        NavTTS.speak(turnAction, { force: true }); // 强制播报
+                        hasPromptedBefore = true;
+                        lastGuidanceTime = now;
+                    }
+                    return;
+                }
+
+                // 2. 距离转向点1/4距离：提前播报（除非太近）
+                if (!isTooClose && distanceToTurn <= quarterDistance * 1.2 && distanceToTurn > quarterDistance * 0.8) {
+                    if (!hasPrompted1_4) {
+                        const guidance = {
+                            type: nextTurnPoint.turnType,
+                            action: turnAction,
+                            distance: Math.round(distanceToTurn),
+                            message: `前方${Math.round(distanceToTurn)}米${turnAction}`
+                        };
+                        updateGuidanceUI(guidance);
+                        NavTTS.speak(`前方${Math.round(distanceToTurn)}米${turnAction}`, { force: true }); // 强制播报
+                        hasPrompted1_4 = true;
+                        lastGuidanceTime = now;
+                    }
+                    return;
+                }
             }
 
-            // 3. 太近的两个转向点：只在到达时提示
-            if (isTooClose && currentIndex === nextTurnPoint.pointIndex) {
-                const guidance = {
-                    type: nextTurnPoint.turnType,
-                    action: turnAction,
-                    distance: 0,
-                    message: turnAction
-                };
-                updateGuidanceUI(guidance);
-                NavTTS.speak(turnAction, { force: false });
-                lastGuidanceTime = now;
-                return;
-            }
-
-            // 4. 默认：显示距离和方向
-            if (distanceToTurn > 50) {
-                // 距离较远，只更新UI不播报
+            // 3. 默认：显示距离和方向（只更新UI，不播报）
+            if (distanceToTurn > 0) {
                 updateGuidanceUI({
                     type: nextTurnPoint.turnType,
                     action: turnAction,
@@ -1218,7 +1264,9 @@ const NavCore = (function() {
                 }, false); // 不播报
 
                 // 尝试智能直行提示（在转向点之间的长距离路段）
-                handleStraightPrompt(currentIndex, distanceToTurn);
+                if (distanceToTurn > 50) {
+                    handleStraightPrompt(currentIndex, distanceToTurn);
+                }
             }
 
         } catch (e) {
@@ -1535,44 +1583,48 @@ const NavCore = (function() {
             // 0. 更新速度计算
             updateSpeed(position);
 
-            // 【新增】检查是否需要清除引导线（到达起点附近）
-            const startPos = routeData.start.position;
-            const distanceToStart = haversineDistance(
-                position[1], position[0],
-                startPos[1], startPos[0]
-            );
-            
-            // 静态标志：是否已经播报过"导航已开始"
-            if (!window.hasAnnouncedNavigationStart) {
-                window.hasAnnouncedNavigationStart = false;
-            }
-            
-            if (distanceToStart <= 20) {
-                // 到达起点附近，清除引导线
+            // 1. 尝试吸附到当前段点集
+            const snapped = findNearestPointInSet(position);
+
+            // 2. 判断是否到达起点（只有吸附成功才算到达）
+            if (!hasReachedStart && snapped !== null) {
+                // 第一次吸附到路网，说明到达起点
+                hasReachedStart = true;
+                window.hasReachedStart = true;
+
+                // 清除引导线
                 NavRenderer.clearGuideLine();
-                
-                // 只播报一次"导航已开始"
+
+                // 播报"已到达起点"
                 if (!window.hasAnnouncedNavigationStart) {
                     window.hasAnnouncedNavigationStart = true;
-                    hasReachedStart = true;  // 标记已到达起点（用于切换位置图标）
                     const firstSegment = segmentRanges[0];
                     const targetName = firstSegment.name.split('到')[1];
                     NavTTS.speak(`已到达起点，前往${targetName}`, { force: true });
                     console.log('[NavCore] 已到达起点，开始正式导航');
                 }
-            } else {
-                // 距离起点超过20米，实时更新指引线
+            }
+
+            // 3. 处理未到达起点的情况（绘制蓝色引导线）
+            if (!hasReachedStart) {
+                const startPos = routeData.start.position;
+                const distanceToStart = haversineDistance(
+                    position[1], position[0],
+                    startPos[1], startPos[0]
+                );
+
+                // 实时绘制引导线
                 NavRenderer.drawGuidanceLine(position, startPos);
-                
-                // 保存到起点的距离到全局变量（供UI使用）
+
+                // 保存距离到全局变量
                 window.distanceToStart = distanceToStart;
-                
+
                 // 更新上方提示栏：显示"请前往起点"
                 if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
-                    const distanceText = distanceToStart < 1000 
-                        ? `${Math.round(distanceToStart)}米` 
+                    const distanceText = distanceToStart < 1000
+                        ? `${Math.round(distanceToStart)}米`
                         : `${(distanceToStart / 1000).toFixed(1)}公里`;
-                    
+
                     NavUI.updateNavigationTip({
                         type: 'straight',
                         action: '前往起点',
@@ -1580,16 +1632,23 @@ const NavCore = (function() {
                         message: `前往起点 ${distanceText}`
                     });
                 }
+
+                // 更新用户位置标记（使用GPS原始位置和方向）
+                NavRenderer.updateUserMarker(position, gpsHeading, true, false);
+
+                // 更新精度圈
+                NavRenderer.updateAccuracyCircle(position, accuracy);
+
+                // 未到达起点，后续逻辑不执行
+                return;
             }
 
-            // 1. 尝试吸附到当前段点集
-            const snapped = findNearestPointInSet(position);
-
+            // 4. 已到达起点，处理正常导航逻辑
             let displayPosition = position; // 默认显示GPS原始位置
             let displayHeading = gpsHeading; // 默认显示GPS方向
 
             if (snapped) {
-                // 吸附成功
+                // 吸附成功，使用吸附位置
                 displayPosition = snapped.position;
                 snappedPosition = snapped.position;
 
@@ -1615,6 +1674,7 @@ const NavCore = (function() {
 
                 // 计算路网方向
                 const roadBearing = calculateCurrentBearing(currentSnappedIndex);
+                displayHeading = roadBearing; // 使用路网方向
 
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
@@ -1626,29 +1686,27 @@ const NavCore = (function() {
                     // 【优化】直行时只移动中心，不旋转地图
                     NavRenderer.setCenterOnly(displayPosition, true);
                 }
-
-                // 如果已到达起点（在绿色路网上），使用路网方向
-                if (hasReachedStart) {
-                    displayHeading = roadBearing;
-                }
             } else {
-                // 未吸附，使用GPS原始位置
+                // 未吸附到路网（偏离路线超过5米）
                 console.log('[点集吸附] 超出5米范围，使用GPS原始位置');
 
-                // 如果之前有吸附过，仍然更新灰色连接线
+                // 显示GPS原始位置和方向
+                displayPosition = position;
+                displayHeading = gpsHeading;
+
+                // 如果之前有吸附过，绘制从最后吸附点到当前位置的灰色连接线
                 if (currentSnappedIndex >= 0) {
                     NavRenderer.updatePassedRoute(currentSnappedIndex, position);
-
-                    // 只移动中心，保持当前旋转角度
-                    NavRenderer.setCenterOnly(position, true);
                 }
+
+                // 地图跟随GPS位置移动
+                NavRenderer.setCenterOnly(position, true);
             }
 
-            // 2. 更新用户位置标记（使用吸附后的位置，平滑移动，传递导航状态）
-            // 如果未到达起点，使用GPS方向；如果到达起点且吸附，使用路网方向
-            NavRenderer.updateUserMarker(displayPosition, displayHeading, true, hasReachedStart);
+            // 5. 更新用户位置标记（已到达起点后）
+            NavRenderer.updateUserMarker(displayPosition, displayHeading, true, true);
 
-            // 3. 更新精度圈（仍使用GPS原始位置）
+            // 6. 更新精度圈（始终使用GPS原始位置）
             NavRenderer.updateAccuracyCircle(position, accuracy);
 
         } catch (e) {
