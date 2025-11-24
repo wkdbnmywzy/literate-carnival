@@ -568,7 +568,7 @@ const NavUI = (function() {
     function showExitNavigationModal() {
         const modal = document.getElementById('exit-navigation-modal');
         if (modal) {
-            modal.style.display = 'flex';
+            modal.classList.add('active');
         }
     }
 
@@ -578,7 +578,7 @@ const NavUI = (function() {
     function hideExitNavigationModal() {
         const modal = document.getElementById('exit-navigation-modal');
         if (modal) {
-            modal.style.display = 'none';
+            modal.classList.remove('active');
         }
     }
 
@@ -593,8 +593,8 @@ const NavUI = (function() {
             const totalTime = 0; // TODO: 从核心模块获取
 
             // 更新弹窗内容
-            const distanceElem = document.getElementById('complete-total-distance');
-            const timeElem = document.getElementById('complete-total-time');
+            const distanceElem = document.getElementById('complete-distance');
+            const timeElem = document.getElementById('complete-time');
 
             if (distanceElem) {
                 distanceElem.textContent = (totalDistance / 1000).toFixed(1);
@@ -603,7 +603,7 @@ const NavUI = (function() {
                 timeElem.textContent = Math.ceil(totalTime / 60);
             }
 
-            modal.style.display = 'flex';
+            modal.classList.add('active');
         }
     }
 
@@ -613,7 +613,7 @@ const NavUI = (function() {
     function hideNavigationCompleteModal() {
         const modal = document.getElementById('navigation-complete-modal');
         if (modal) {
-            modal.style.display = 'none';
+            modal.classList.remove('active');
         }
     }
 
