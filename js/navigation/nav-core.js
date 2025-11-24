@@ -1749,18 +1749,18 @@ const NavCore = (function() {
                 // 更新已走路线（灰色）
                 NavRenderer.updatePassedRoute(currentSnappedIndex, displayPosition);
 
-                // 计算路网方向（用于地图朝向），但标记角度改用设备/GPS朝向，保持与首页一致
+                // 计算路网方向
                 const roadBearing = calculateCurrentBearing(currentSnappedIndex);
-                const markerHeading = gpsHeading; // 优先设备/GPS方向
-                displayHeading = markerHeading; // 标记使用设备方向
+                displayHeading = roadBearing; // 使用路网方向
 
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
                 if (turningCheck && turningCheck.needRotate) {
+                    // 到达转向点前一个点，旋转地图并记录角度
                     currentMapRotation = turningCheck.bearing;
-                    // 地图仍采用路网方向，标记保留设备角度
-                    NavRenderer.setHeadingUpMode(displayPosition, roadBearing, true);
+                    NavRenderer.setHeadingUpMode(displayPosition, turningCheck.bearing, true);
                 } else {
+                    // 【优化】直行时只移动中心，不旋转地图
                     NavRenderer.setCenterOnly(displayPosition, true);
                 }
             } else {
