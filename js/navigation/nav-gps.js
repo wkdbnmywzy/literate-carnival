@@ -25,7 +25,6 @@ const NavGPS = (function() {
     let lastPosition = null;
     let lastUpdateTime = 0;
     let lastHeading = 0; // 最近一次有效朝向（度）
-    let lastSmoothedHeading = 0; // 平滑后的朝向
 
     // watchPosition ID
     let watchId = null;
@@ -397,10 +396,9 @@ const NavGPS = (function() {
             const computedHeading = computeHeading(pos, validation.isStationary);
 
             if (validation.isStationary) {
-                // 静止：不加入历史；位置使用最后有效点以减少抖动
-                const stablePos = validation.lastValidPosition || lastPosition || pos;
+                // 静止：不加入历史，但仍推送当前坐标与朝向（防止图标停滞）
                 if (onPositionUpdate) {
-                    onPositionUpdate(stablePos, accuracy, computedHeading);
+                    onPositionUpdate(pos, accuracy, computedHeading);
                 }
                 return;
             }
@@ -445,37 +443,11 @@ const NavGPS = (function() {
 
             // 归一化
             heading = ((heading % 360) + 360) % 360;
-
-            // 平滑处理：限制每次变化幅度，避免乱跳
-            const diff = shortestAngleDiff(lastSmoothedHeading, heading);
-            const maxStep = 30; // 每次最大变化度数
-            let appliedHeading = heading;
-            if (Math.abs(diff) > maxStep) {
-                // 过大跳变，截断
-                appliedHeading = normalizeAngle(lastSmoothedHeading + Math.sign(diff) * maxStep);
-            }
-
-            // 轻度指数平滑（只在小跳动时）
-            if (Math.abs(diff) <= maxStep) {
-                const alpha = 0.3; // 平滑系数
-                appliedHeading = normalizeAngle(lastSmoothedHeading + diff * alpha);
-            }
-
             lastHeading = heading;
-            lastSmoothedHeading = appliedHeading;
-            return appliedHeading;
+            return heading;
         } catch (e) {
             return lastHeading;
         }
-    }
-
-    function shortestAngleDiff(from, to) {
-        let diff = ((to - from + 540) % 360) - 180; // -180..180
-        return diff;
-    }
-
-    function normalizeAngle(a) {
-        a = a % 360; if (a < 0) a += 360; return a;
     }
 
     function bearingBetween(pos1, pos2) {
