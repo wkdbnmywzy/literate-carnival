@@ -1654,13 +1654,16 @@ const NavCore = (function() {
                     startPos[1], startPos[0]
                 );
 
+                // 更新用户位置标记（先更新，避免引导线绘制时用户标记未刷新）
+                NavRenderer.updateUserMarker(position, gpsHeading, false, false);
+
                 // 实时绘制引导线
                 NavRenderer.drawGuidanceLine(position, startPos);
 
                 // 保存距离到全局变量
                 window.distanceToStart = distanceToStart;
 
-                // 更新上方提示栏：显示"请前往起点"
+                // 更新上方提示栏：显示"前往起点"
                 if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
                     const distanceText = distanceToStart < 1000
                         ? `${Math.round(distanceToStart)}米`
@@ -1674,10 +1677,7 @@ const NavCore = (function() {
                     });
                 }
 
-                // 更新用户位置标记（使用GPS原始位置和方向）
-                NavRenderer.updateUserMarker(position, gpsHeading, true, false);
-
-                // 地图跟随用户位置（新增）
+                // 地图跟随用户位置
                 NavRenderer.setCenterOnly(position, true);
 
                 // 更新精度圈
