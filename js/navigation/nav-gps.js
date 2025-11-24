@@ -10,13 +10,13 @@ const NavGPS = (function() {
     // GPS配置
     let config = {
         filterEnabled: true,           // GPS过滤开关
-        maxJumpDistance: 100,          // 最大跳跃距离（米）- 增加到100米，避免初始定位偏差导致后续更新被拒
+        maxJumpDistance: 100,          // 最大跳跃距离（米）- 放宽以容忍初始偏差
         maxHistorySize: 5,             // 历史记录大小
-        maxAccuracy: 50,               // 最大允许精度误差（米）- 降低到50米
+        maxAccuracy: 500,              // 最大允许精度误差（米）- 放宽，避免弱信号下不更新
         maxSpeed: 15,                  // 最大速度（米/秒，54km/h）- 工地车辆速度较慢
-        minMovement: 1,                // 最小移动距离（米）- 低于此值认为是静止/飘移
+        minMovement: 0.3,              // 最小移动距离（米）- 放宽，微小移动也更新UI
         highAccuracy: true,            // 启用高精度模式
-        timeout: 15000,                // 定位超时（毫秒） - 增加到15秒
+        timeout: 15000,                // 定位超时（毫秒）
         maximumAge: 0                  // 不使用缓存
     };
 
@@ -391,11 +391,10 @@ const NavGPS = (function() {
             }
 
             // 检查是否是静止/飘移
-            if (validation.isStationary && validation.lastValidPosition) {
-                // 移动距离太小，使用上一个有效位置，不更新历史记录
-                // 但仍然通知回调（保持UI响应）
+            if (validation.isStationary) {
+                // 移动距离太小：不写入历史以免影响速度，但将“当前新坐标”推给UI，确保图标可见移动
                 if (onPositionUpdate) {
-                    onPositionUpdate(validation.lastValidPosition, accuracy, heading);
+                    onPositionUpdate(pos, accuracy, heading);
                 }
                 return;
             }
