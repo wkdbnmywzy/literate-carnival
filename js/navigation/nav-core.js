@@ -48,6 +48,54 @@ const NavCore = (function() {
     // 导航阶段状态
     let hasReachedStart = false;    // 是否已到达起点（用于切换位置图标）
 
+    // 设备朝向（导航页未引入首页 map-core.js，需要独立监听）
+    let deviceHeading = null;       // 设备方向（0-360，正北为0，顺时针）
+    let lastRawHeading = null;      // 上一次用于UI的有效朝向
+    let lastPreStartPosition = null; // 起点前上一次GPS位置
+    let orientationListening = false;
+
+    function initDeviceOrientationListener() {
+        if (orientationListening) return;
+        try {
+            const ua = navigator.userAgent;
+            const isIOS = /iP(ad|hone|od)/i.test(ua);
+            const requestIOS = () => {
+                if (isIOS && typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission().then(state => {
+                        if (state === 'granted') attachOrientationEvents();
+                    }).catch(() => {});
+                } else {
+                    attachOrientationEvents();
+                }
+            };
+            function attachOrientationEvents() {
+                const handler = (e) => {
+                    let heading = null;
+                    if (typeof e.webkitCompassHeading === 'number' && !isNaN(e.webkitCompassHeading)) {
+                        heading = e.webkitCompassHeading;
+                    } else if (typeof e.alpha === 'number' && !isNaN(e.alpha)) {
+                        // 使用 absolute 优先；普通 alpha 需转换为顺时针
+                        heading = e.absolute === true ? e.alpha : (360 - e.alpha);
+                    }
+                    if (heading !== null) {
+                        if (heading < 0) heading += 360;
+                        heading = heading % 360;
+                        deviceHeading = heading;
+                    }
+                };
+                if ('ondeviceorientationabsolute' in window) {
+                    window.addEventListener('deviceorientationabsolute', handler, true);
+                } else {
+                    window.addEventListener('deviceorientation', handler, true);
+                }
+                orientationListening = true;
+            }
+            requestIOS();
+        } catch (e) {
+            console.warn('[NavCore] 设备方向监听失败:', e);
+        }
+    }
+
     /**
      * 初始化导航核心模块
      * @param {string} mapContainerId - 地图容器ID
@@ -69,6 +117,9 @@ const NavCore = (function() {
                 console.error('[NavCore] 地图初始化失败');
                 return false;
             }
+
+            // 初始化设备方向监听（用于起点前“我的位置”图标朝向）
+            initDeviceOrientationListener();
 
             map.on('complete', onMapComplete);
             NavGuidance.init();
@@ -1654,8 +1705,26 @@ const NavCore = (function() {
                     startPos[1], startPos[0]
                 );
 
-                // 更新用户位置标记（先更新，避免引导线绘制时用户标记未刷新）
-                NavRenderer.updateUserMarker(position, gpsHeading, false, false);
+                // 计算稳定朝向：优先设备方向；否则使用与上一点的方位角；小于0.5m不更新
+                let headingForMarker = deviceHeading;
+                if (headingForMarker === null || headingForMarker === undefined) {
+                    if (lastPreStartPosition) {
+                        const moveDist = haversineDistance(lastPreStartPosition[1], lastPreStartPosition[0], position[1], position[0]);
+                        if (moveDist >= 0.5) {
+                            headingForMarker = calculateBearing(lastPreStartPosition, position);
+                        } else {
+                            headingForMarker = lastRawHeading; // 保持上次
+                        }
+                    }
+                }
+                if (headingForMarker === null || headingForMarker === undefined || isNaN(headingForMarker)) {
+                    headingForMarker = lastRawHeading || 0;
+                }
+                lastRawHeading = headingForMarker;
+                lastPreStartPosition = position;
+
+                // 更新用户位置标记（使用稳定朝向）
+                NavRenderer.updateUserMarker(position, headingForMarker, false, false);
 
                 // 实时绘制引导线
                 NavRenderer.drawGuidanceLine(position, startPos);
