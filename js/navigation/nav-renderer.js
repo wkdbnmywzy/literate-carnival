@@ -490,7 +490,22 @@ const NavRenderer = (function() {
                 // 更新图标（如果状态改变且是Marker类型）
                 if (typeof userMarker.setIcon === 'function') {
                     const currentIcon = userMarker.getIcon();
-                    if (currentIcon && currentIcon.getImageUrl() !== iconImage) {
+                    // 检查是否需要切换图标（比较图标图片路径）
+                    let needIconChange = false;
+                    if (currentIcon) {
+                        try {
+                            // 尝试获取当前图标的图片URL
+                            const currentImageUrl = currentIcon.getImageUrl ? currentIcon.getImageUrl() : currentIcon.image;
+                            needIconChange = (currentImageUrl !== iconImage);
+                        } catch (e) {
+                            // 如果获取失败，默认需要更新
+                            needIconChange = true;
+                        }
+                    } else {
+                        needIconChange = true;
+                    }
+
+                    if (needIconChange) {
                         console.log('[NavRenderer] 切换位置图标:', hasStarted ? '临时车' : '我的位置');
                         try {
                             userMarker.setIcon(new AMap.Icon({
