@@ -25,6 +25,12 @@ const NavGPS = (function() {
     let lastPosition = null;
     let lastUpdateTime = 0;
     let lastHeading = 0; // 最近一次有效朝向（度）
+    let smoothedHeading = null; // 平滑后的朝向
+    let lastHeadingPos = null; // 上一次用于计算方位角的位置
+    const HEADING_SMOOTHING_ALPHA = 0.25; // 指数平滑系数(0.2~0.3之间较稳)
+    const MIN_BEARING_MOVE_DISTANCE = 1.5; // 计算位置推导朝向的最小位移（米）
+    const MAX_BEARING_DELTA = 35; // 单次更新允许的最大角度跳变（度）
+    const DEBUG_GPS_HEADING = false; // 调试开关
 
     // watchPosition ID
     let watchId = null;
@@ -376,7 +382,7 @@ const NavGPS = (function() {
             let lng = position.coords.longitude;
             let lat = position.coords.latitude;
             const accuracy = position.coords.accuracy || 10;
-            let headingRaw = position.coords.heading; // 可能为 null / NaN / -1
+            const headingRaw = position.coords.heading; // 可能为 null / NaN / -1
 
             const converted = convertCoordinates(lng, lat);
             lng = converted[0];
@@ -393,7 +399,7 @@ const NavGPS = (function() {
 
             // 检查是否是静止/飘移
             // 计算或回退朝向
-            const computedHeading = computeHeading(pos, validation.isStationary);
+            const computedHeading = computeHeading(pos, validation.isStationary, headingRaw);
 
             if (validation.isStationary) {
                 // 静止：不加入历史，但仍推送当前坐标与朝向（防止图标停滞）
@@ -416,35 +422,62 @@ const NavGPS = (function() {
         }
     }
 
-    // 根据原始 heading 或两点计算 bearing，回退到 lastHeading
-    function computeHeading(currentPos, isStationary) {
+    // 根据原始 headingRaw 或两点计算 bearing，加入平滑和阈值抑制
+    function computeHeading(currentPos, isStationary, headingRaw) {
         try {
             let heading = null;
-            // 尝试使用原始 headingRaw
+            // 1. 优先使用设备原始朝向（浏览器或传感器提供）
             if (typeof headingRaw === 'number' && !isNaN(headingRaw) && headingRaw >= 0) {
                 heading = headingRaw;
-            }
-
-            // 原始 heading 不可靠时，使用最近一次有效移动方向
-            if (heading == null) {
-                if (recentPositions.length > 0) {
-                    const prev = recentPositions[recentPositions.length - 1];
-                    const b = bearingBetween(prev, currentPos);
-                    if (!isNaN(b)) heading = b;
+            } else {
+                // 2. 无原始朝向时根据位置位移推导
+                const refPos = lastHeadingPos || (recentPositions.length > 0 ? recentPositions[recentPositions.length - 1] : null);
+                if (refPos) {
+                    const moveDist = calculateDistance(refPos, currentPos);
+                    if (moveDist >= MIN_BEARING_MOVE_DISTANCE && recentPositions.length > 0) {
+                        const b = bearingBetween(refPos, currentPos);
+                        if (!isNaN(b)) {
+                            heading = b;
+                            lastHeadingPos = currentPos; // 仅在足够移动时更新参考点
+                        }
+                    }
                 }
             }
 
-            // 静止时保持最后朝向
-            if (isStationary && heading == null) {
-                heading = lastHeading;
-            }
-
+            // 3. 静止或推导失败时保持最后朝向
             if (heading == null) heading = lastHeading;
 
-            // 归一化
-            heading = ((heading % 360) + 360) % 360;
-            lastHeading = heading;
-            return heading;
+            // 4. 跳变抑制：若非原始传感器数据，限制单次过大角度跳变
+            const isRawSensor = (typeof headingRaw === 'number' && !isNaN(headingRaw) && headingRaw >= 0);
+            if (!isRawSensor) {
+                const delta = angularDiffDeg(lastHeading, heading);
+                if (delta > MAX_BEARING_DELTA) {
+                    // 过大的跳变：采用上一次朝向（避免乱跳）
+                    heading = lastHeading;
+                }
+            }
+
+            // 5. 指数平滑（对所有来源统一平滑，但保持原始传感器更灵敏）
+            if (smoothedHeading == null) {
+                smoothedHeading = heading;
+            } else {
+                // 处理角度跨越0/360的情况：转换到向量再平滑
+                smoothedHeading = smoothAngle(smoothedHeading, heading, HEADING_SMOOTHING_ALPHA);
+            }
+
+            lastHeading = smoothedHeading;
+
+            if (DEBUG_GPS_HEADING) {
+                console.debug('[NavGPS heading]', {
+                    raw: headingRaw,
+                    chosen: heading,
+                    smoothed: smoothedHeading,
+                    lastHeading,
+                    isStationary,
+                    recentLen: recentPositions.length
+                });
+            }
+            return lastHeading;
         } catch (e) {
             return lastHeading;
         }
@@ -461,6 +494,24 @@ const NavGPS = (function() {
         let brng = Math.atan2(y, x) * 180 / Math.PI;
         brng = (brng + 360) % 360;
         return brng;
+    }
+
+    // 角度差（绝对值，0~180）
+    function angularDiffDeg(a, b) {
+        let d = ((b - a + 540) % 360) - 180; // -180..180
+        return Math.abs(d);
+    }
+
+    // 平滑角度（通过向量表示解决跨越0/360的问题）
+    function smoothAngle(prev, next, alpha) {
+        const toRad = deg => deg * Math.PI / 180;
+        const prevRad = toRad(prev);
+        const nextRad = toRad(next);
+        const x = (1 - alpha) * Math.cos(prevRad) + alpha * Math.cos(nextRad);
+        const y = (1 - alpha) * Math.sin(prevRad) + alpha * Math.sin(nextRad);
+        let ang = Math.atan2(y, x) * 180 / Math.PI;
+        if (ang < 0) ang += 360;
+        return ang;
     }
 
     /**
