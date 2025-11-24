@@ -13,8 +13,9 @@ const NavRenderer = (function() {
     // 地图覆盖物
     let routePolyline = null;        // 主路线（绿色）
     let routeBorderPolyline = null;  // 主路线边框（浅绿色）
-    let passedPolyline = null;       // 已走路线（灰色）
+    let passedPolyline = null;       // 当前段已走路线（灰色）
     let passedConnectLine = null;    // 用户位置到上一个点的灰色连接线
+    let completedSegmentPolylines = [];  // 已完成路段的灰色路线数组（固化保存）
     let startMarker = null;          // 起点标记
     let endMarker = null;            // 终点标记
     let waypointMarkers = [];        // 途经点标记
@@ -205,22 +206,33 @@ const NavRenderer = (function() {
     }
 
     /**
-     * 降低已完成路段的灰色路线层级（到绿色之下）
+     * 固化已完成路段的灰色路线（保存并降低层级到绿色之下）
      */
     function lowerCompletedSegmentZIndex() {
         try {
             if (!map) return;
 
-            // 降低已完成路段的灰色路线到绿色下方（zIndex: 180）
+            // 将当前段的灰色路线保存到已完成数组中
             if (passedPolyline) {
+                // 降低层级到绿色下方（zIndex: 180）
                 passedPolyline.setOptions({ zIndex: 180 });
+                // 保存到数组
+                completedSegmentPolylines.push(passedPolyline);
+                console.log('[NavRenderer] 已完成路段灰色路线已固化，总数:', completedSegmentPolylines.length);
+                // 清除当前变量引用（准备绘制下一段）
+                passedPolyline = null;
             }
 
             if (passedConnectLine) {
+                // 连接线也降低层级
                 passedConnectLine.setOptions({ zIndex: 180 });
+                // 保存到数组
+                completedSegmentPolylines.push(passedConnectLine);
+                // 清除当前变量引用
+                passedConnectLine = null;
             }
         } catch (e) {
-            console.error('[NavRenderer] 降低层级失败:', e);
+            console.error('[NavRenderer] 固化灰色路线失败:', e);
         }
     }
 
@@ -921,6 +933,14 @@ const NavRenderer = (function() {
             if (routeBorderPolyline) map.remove(routeBorderPolyline);
             if (passedPolyline) map.remove(passedPolyline);
             if (passedConnectLine) map.remove(passedConnectLine);
+
+            // 清除所有已完成路段的灰色路线
+            if (completedSegmentPolylines.length > 0) {
+                map.remove(completedSegmentPolylines);
+                completedSegmentPolylines = [];
+                console.log('[NavRenderer] 已清除所有已完成路段的灰色路线');
+            }
+
             clearRouteMarkers();
             clearWaypointMarkers();
             if (userMarker) map.remove(userMarker);
