@@ -16,6 +16,10 @@ const NavRenderer = (function() {
     let passedPolyline = null;       // 当前段已走路线（灰色）
     let passedConnectLine = null;    // 用户位置到上一个点的灰色连接线
     let completedSegmentPolylines = [];  // 已完成路段的灰色路线数组（固化保存）
+    let deviationPolyline = null;    // 当前偏移轨迹（黄色）
+    let deviationHistory = [];       // 偏移轨迹历史（保存已完成的黄色线段）
+    let lastSnappedPosition = null;  // 最后吸附的位置（偏移起点）
+    let isCurrentlyDeviated = false; // 当前是否处于偏移状态
     let startMarker = null;          // 起点标记
     let endMarker = null;            // 终点标记
     let waypointMarkers = [];        // 途经点标记
@@ -42,6 +46,12 @@ const NavRenderer = (function() {
             strokeWeight: 8,         // 灰色路线宽度：8像素
             strokeOpacity: 1.0,      // 完全不透明（改为1.0）
             zIndex: 200              // 已走路线在上层
+        },
+        deviation: {
+            strokeColor: '#FFA500',  // 橙黄色偏移轨迹
+            strokeWeight: 6,         // 偏移线宽度：6像素
+            strokeOpacity: 0.9,      // 稍微透明
+            zIndex: 210              // 偏移线在最上层
         }
     };
 
@@ -434,34 +444,65 @@ const NavRenderer = (function() {
             if (!userMarker) {
                 // 创建用户位置标记
                 console.log('[NavRenderer] 创建用户位置标记:', position, hasStarted ? '(导航中)' : '(前往起点)');
-                userMarker = new AMap.Marker({
-                    position: position,
-                    icon: new AMap.Icon({
-                        size: iconSize,
-                        image: iconImage,
-                        imageSize: iconSize  // 使用相同尺寸，保持原图比例
-                    }),
-                    offset: iconOffset,
-                    zIndex: 300,
-                    map: map
-                });
+
+                try {
+                    userMarker = new AMap.Marker({
+                        position: position,
+                        icon: new AMap.Icon({
+                            size: iconSize,
+                            image: iconImage,
+                            imageSize: iconSize  // 使用相同尺寸，保持原图比例
+                        }),
+                        offset: iconOffset,
+                        zIndex: 300,
+                        map: map,
+                        visible: true,  // 确保可见
+                        clickable: false  // 不可点击，避免干扰地图交互
+                    });
+                    console.log('[NavRenderer] ✓ 用户位置标记创建成功');
+                } catch (iconError) {
+                    console.error('[NavRenderer] 图标创建失败，使用默认圆点:', iconError);
+                    // 如果图标创建失败，使用简单的圆点标记
+                    userMarker = new AMap.CircleMarker({
+                        center: position,
+                        radius: 10,
+                        fillColor: hasStarted ? '#FF6B35' : '#007AFF',
+                        fillOpacity: 1,
+                        strokeColor: '#FFFFFF',
+                        strokeWeight: 2,
+                        zIndex: 300,
+                        map: map
+                    });
+                    console.log('[NavRenderer] ✓ 使用圆点标记作为备用');
+                }
             } else {
-                // 确保标记在地图上
+                // 确保标记在地图上且可见
                 if (!userMarker.getMap()) {
                     console.warn('[NavRenderer] 用户标记不在地图上，重新添加');
                     userMarker.setMap(map);
                 }
 
-                // 更新图标（如果状态改变）
-                const currentIcon = userMarker.getIcon();
-                if (currentIcon && currentIcon.getImageUrl() !== iconImage) {
-                    console.log('[NavRenderer] 切换位置图标:', hasStarted ? '临时车' : '我的位置');
-                    userMarker.setIcon(new AMap.Icon({
-                        size: iconSize,
-                        image: iconImage,
-                        imageSize: iconSize  // 使用相同尺寸，保持原图比例
-                    }));
-                    userMarker.setOffset(iconOffset);  // 同时更新偏移量
+                // 确保标记可见
+                if (typeof userMarker.show === 'function') {
+                    userMarker.show();
+                }
+
+                // 更新图标（如果状态改变且是Marker类型）
+                if (typeof userMarker.setIcon === 'function') {
+                    const currentIcon = userMarker.getIcon();
+                    if (currentIcon && currentIcon.getImageUrl() !== iconImage) {
+                        console.log('[NavRenderer] 切换位置图标:', hasStarted ? '临时车' : '我的位置');
+                        try {
+                            userMarker.setIcon(new AMap.Icon({
+                                size: iconSize,
+                                image: iconImage,
+                                imageSize: iconSize  // 使用相同尺寸，保持原图比例
+                            }));
+                            userMarker.setOffset(iconOffset);  // 同时更新偏移量
+                        } catch (iconError) {
+                            console.error('[NavRenderer] 图标切换失败:', iconError);
+                        }
+                    }
                 }
 
                 // 更新位置
@@ -472,33 +513,24 @@ const NavRenderer = (function() {
                             duration: 300,  // 300毫秒平滑移动
                             delay: 0
                         });
-                    } else {
-                        console.warn('[NavRenderer] moveTo方法不存在，使用setPosition');
+                    } else if (typeof userMarker.setPosition === 'function') {
                         userMarker.setPosition(position);
+                    } else if (typeof userMarker.setCenter === 'function') {
+                        // CircleMarker使用setCenter
+                        userMarker.setCenter(position);
                     }
                 } else {
                     // 直接跳转
-                    userMarker.setPosition(position);
-                }
-                
-                // 验证位置是否更新成功（仅在调试时）
-                if (false) { // 设为true可启用调试
-                    const currentPos = userMarker.getPosition();
-                    if (currentPos) {
-                        const posArray = [currentPos.lng, currentPos.lat];
-                        const distance = Math.sqrt(
-                            Math.pow(posArray[0] - position[0], 2) + 
-                            Math.pow(posArray[1] - position[1], 2)
-                        ) * 111000;
-                        if (distance > 1) {
-                            console.log('[NavRenderer] 位置更新验证: 偏差', distance.toFixed(2), '米');
-                        }
+                    if (typeof userMarker.setPosition === 'function') {
+                        userMarker.setPosition(position);
+                    } else if (typeof userMarker.setCenter === 'function') {
+                        userMarker.setCenter(position);
                     }
                 }
             }
 
-            // 更新方向（如果需要）
-            if (heading !== null && heading !== undefined) {
+            // 更新方向（如果需要且支持）
+            if (heading !== null && heading !== undefined && typeof userMarker.setAngle === 'function') {
                 userMarker.setAngle(heading);
             }
 
@@ -941,6 +973,9 @@ const NavRenderer = (function() {
                 console.log('[NavRenderer] 已清除所有已完成路段的灰色路线');
             }
 
+            // 清除偏离轨迹
+            clearDeviationHistory();
+
             clearRouteMarkers();
             clearWaypointMarkers();
             if (userMarker) map.remove(userMarker);
@@ -996,6 +1031,193 @@ const NavRenderer = (function() {
         return Math.abs(area) / 2;
     }
 
+    // ========== 偏离轨迹管理 ==========
+
+    /**
+     * 开始偏离轨迹记录
+     * @param {Array} lastSnappedPos - 最后吸附的位置 [lng, lat]
+     */
+    function startDeviation(lastSnappedPos) {
+        try {
+            if (!map) return;
+
+            // 如果已经在偏离状态，不重复启动
+            if (isCurrentlyDeviated) {
+                console.log('[NavRenderer] 已在偏离状态，跳过启动');
+                return;
+            }
+
+            console.log('[NavRenderer] 开始偏离轨迹记录，起点:', lastSnappedPos);
+
+            lastSnappedPosition = lastSnappedPos;
+            isCurrentlyDeviated = true;
+
+            // 清除之前的偏离线（如果有）
+            if (deviationPolyline) {
+                map.remove(deviationPolyline);
+                deviationPolyline = null;
+            }
+        } catch (e) {
+            console.error('[NavRenderer] 开始偏离轨迹失败:', e);
+        }
+    }
+
+    /**
+     * 更新偏离轨迹（实时绘制黄色线）
+     * @param {Array} currentGpsPos - 当前GPS位置 [lng, lat]
+     */
+    function updateDeviationLine(currentGpsPos) {
+        try {
+            if (!map || !isCurrentlyDeviated || !lastSnappedPosition) {
+                return;
+            }
+
+            // 清除旧的偏离线
+            if (deviationPolyline) {
+                map.remove(deviationPolyline);
+            }
+
+            // 绘制从最后吸附点到当前GPS位置的黄色线
+            deviationPolyline = new AMap.Polyline({
+                path: [lastSnappedPosition, currentGpsPos],
+                strokeColor: ROUTE_STYLES.deviation.strokeColor,
+                strokeWeight: ROUTE_STYLES.deviation.strokeWeight,
+                strokeOpacity: ROUTE_STYLES.deviation.strokeOpacity,
+                lineJoin: 'round',
+                lineCap: 'round',
+                zIndex: ROUTE_STYLES.deviation.zIndex,
+                map: map
+            });
+
+            console.log('[NavRenderer] 偏离轨迹已更新，长度:',
+                calculateLineDistance(lastSnappedPosition, currentGpsPos).toFixed(2), '米');
+        } catch (e) {
+            console.error('[NavRenderer] 更新偏离轨迹失败:', e);
+        }
+    }
+
+    /**
+     * 结束偏离状态（重新接入路网）
+     * @param {Array} rejoinPos - 重新接入的位置 [lng, lat]
+     * @param {boolean} isSameSegment - 是否在同一路段接入
+     * @returns {Object} 偏离信息 { startPos, endPos, preserved }
+     */
+    function endDeviation(rejoinPos, isSameSegment) {
+        try {
+            if (!map || !isCurrentlyDeviated) {
+                return null;
+            }
+
+            console.log('[NavRenderer] 结束偏离状态，接入点:', rejoinPos,
+                isSameSegment ? '(同一路段)' : '(不同路段)');
+
+            const deviationInfo = {
+                startPos: lastSnappedPosition,
+                endPos: rejoinPos,
+                isSameSegment: isSameSegment,
+                preserved: false
+            };
+
+            // 保存当前偏离线到历史记录
+            if (deviationPolyline) {
+                // 降低层级并保存
+                deviationPolyline.setOptions({
+                    zIndex: 180,  // 降低到绿色路线下方
+                    strokeOpacity: 0.6  // 稍微降低透明度
+                });
+                deviationHistory.push(deviationPolyline);
+                deviationPolyline = null;
+                deviationInfo.preserved = true;
+
+                console.log('[NavRenderer] 偏离轨迹已保存，历史记录数:', deviationHistory.length);
+            }
+
+            // 重置偏离状态
+            isCurrentlyDeviated = false;
+            lastSnappedPosition = null;
+
+            return deviationInfo;
+        } catch (e) {
+            console.error('[NavRenderer] 结束偏离状态失败:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 检查是否处于偏离状态
+     * @returns {boolean}
+     */
+    function isDeviated() {
+        return isCurrentlyDeviated;
+    }
+
+    /**
+     * 获取最后吸附位置
+     * @returns {Array|null}
+     */
+    function getLastSnappedPosition() {
+        return lastSnappedPosition;
+    }
+
+    /**
+     * 更新最后吸附位置（在正常吸附时调用）
+     * @param {Array} position - [lng, lat]
+     */
+    function setLastSnappedPosition(position) {
+        lastSnappedPosition = position;
+    }
+
+    /**
+     * 清除所有偏离轨迹历史
+     */
+    function clearDeviationHistory() {
+        try {
+            if (!map) return;
+
+            // 清除当前偏离线
+            if (deviationPolyline) {
+                map.remove(deviationPolyline);
+                deviationPolyline = null;
+            }
+
+            // 清除历史偏离线
+            if (deviationHistory.length > 0) {
+                map.remove(deviationHistory);
+                deviationHistory = [];
+            }
+
+            isCurrentlyDeviated = false;
+            lastSnappedPosition = null;
+
+            console.log('[NavRenderer] 偏离轨迹历史已清除');
+        } catch (e) {
+            console.error('[NavRenderer] 清除偏离轨迹失败:', e);
+        }
+    }
+
+    /**
+     * 计算两点距离（简单版）
+     * @param {Array} pos1 - [lng, lat]
+     * @param {Array} pos2 - [lng, lat]
+     * @returns {number} 距离（米）
+     */
+    function calculateLineDistance(pos1, pos2) {
+        if (typeof AMap !== 'undefined' && AMap.GeometryUtil) {
+            return AMap.GeometryUtil.distance(pos1, pos2);
+        }
+        // 简单计算（Haversine）
+        const [lng1, lat1] = pos1;
+        const [lng2, lat2] = pos2;
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
     // 公开API
     return {
         initMap,
@@ -1020,11 +1242,20 @@ const NavRenderer = (function() {
         clearWaypointMarkers,
         clearAll,
         destroy,
-        
+
         // 【新增】引导线相关
         drawGuideLineToStart,
         drawGuidanceLine,  // 别名函数
         clearGuideLine,
+
+        // 【新增】偏离轨迹相关
+        startDeviation,
+        updateDeviationLine,
+        endDeviation,
+        isDeviated,
+        getLastSnappedPosition,
+        setLastSnappedPosition,
+        clearDeviationHistory,
 
         // 暴露KML图层给路径规划模块使用
         getKMLLayers: () => kmlLayers

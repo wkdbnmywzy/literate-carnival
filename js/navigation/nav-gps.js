@@ -10,10 +10,11 @@ const NavGPS = (function() {
     // GPS配置
     let config = {
         filterEnabled: true,           // GPS过滤开关
-        maxJumpDistance: 50,           // 最大跳跃距离（米）
+        maxJumpDistance: 30,           // 最大跳跃距离（米）- 降低到30米，更严格
         maxHistorySize: 5,             // 历史记录大小
-        maxAccuracy: 100,              // 最大允许精度误差（米）
-        maxSpeed: 20,                  // 最大速度（米/秒，72km/h）
+        maxAccuracy: 50,               // 最大允许精度误差（米）- 降低到50米
+        maxSpeed: 15,                  // 最大速度（米/秒，54km/h）- 工地车辆速度较慢
+        minMovement: 1,                // 最小移动距离（米）- 低于此值认为是静止/飘移
         highAccuracy: true,            // 启用高精度模式
         timeout: 15000,                // 定位超时（毫秒） - 增加到15秒
         maximumAge: 0                  // 不使用缓存
@@ -72,37 +73,54 @@ const NavGPS = (function() {
      * 校验GPS数据是否有效
      * @param {Array} position - [lng, lat]
      * @param {number} accuracy - GPS精度（米）
-     * @returns {Object} { isValid, reason }
+     * @returns {Object} { isValid, reason, isStationary }
      */
     function validatePosition(position, accuracy) {
         try {
             if (!config.filterEnabled) {
-                return { isValid: true, reason: 'filter_disabled' };
+                return { isValid: true, reason: 'filter_disabled', isStationary: false };
             }
 
             if (recentPositions.length === 0) {
-                return { isValid: true, reason: 'first_position' };
+                return { isValid: true, reason: 'first_position', isStationary: false };
             }
 
+            // 检查精度
             if (accuracy && accuracy > config.maxAccuracy) {
                 return {
                     isValid: false,
                     reason: 'poor_accuracy',
-                    details: `精度${accuracy}米 > ${config.maxAccuracy}米`
+                    details: `精度${accuracy}米 > ${config.maxAccuracy}米`,
+                    isStationary: false
                 };
             }
 
             const lastValid = recentPositions[recentPositions.length - 1];
             const jumpDist = calculateDistance(lastValid, position);
 
+            // 检查是否是飘移（移动距离太小，可能是GPS抖动）
+            if (jumpDist < config.minMovement) {
+                // 移动距离小于1米，认为是静止或飘移，使用上一个有效位置
+                return {
+                    isValid: true,
+                    reason: 'stationary_or_drift',
+                    details: `移动${jumpDist.toFixed(2)}米 < ${config.minMovement}米，忽略`,
+                    isStationary: true,
+                    lastValidPosition: lastValid
+                };
+            }
+
+            // 检查跳跃距离
             if (jumpDist > config.maxJumpDistance) {
                 return {
                     isValid: false,
                     reason: 'jump_too_large',
-                    details: `跳跃${jumpDist.toFixed(2)}米 > ${config.maxJumpDistance}米`
+                    details: `跳跃${jumpDist.toFixed(2)}米 > ${config.maxJumpDistance}米`,
+                    isStationary: false
                 };
             }
 
+            // 检查速度
             if (lastUpdateTime > 0) {
                 const timeDiff = (Date.now() - lastUpdateTime) / 1000;
                 if (timeDiff > 0.1) {
@@ -111,7 +129,8 @@ const NavGPS = (function() {
                         return {
                             isValid: false,
                             reason: 'speed_too_high',
-                            details: `速度${speed.toFixed(2)}m/s > ${config.maxSpeed}m/s`
+                            details: `速度${speed.toFixed(2)}m/s > ${config.maxSpeed}m/s`,
+                            isStationary: false
                         };
                     }
                 }
@@ -365,13 +384,23 @@ const NavGPS = (function() {
             const pos = [lng, lat];
             const validation = validatePosition(pos, accuracy);
 
+            // 检查是否无效（精度差、跳跃太大、速度太快等）
             if (!validation.isValid) {
-                if (recentPositions.length > 0) {
-                    const lastValid = recentPositions[recentPositions.length - 1];
+                // 无效数据，忽略
+                return;
+            }
+
+            // 检查是否是静止/飘移
+            if (validation.isStationary && validation.lastValidPosition) {
+                // 移动距离太小，使用上一个有效位置，不更新历史记录
+                // 但仍然通知回调（保持UI响应）
+                if (onPositionUpdate) {
+                    onPositionUpdate(validation.lastValidPosition, accuracy, heading);
                 }
                 return;
             }
 
+            // 有效的移动，更新历史记录
             addToHistory(pos);
             lastPosition = pos;
             lastUpdateTime = Date.now();

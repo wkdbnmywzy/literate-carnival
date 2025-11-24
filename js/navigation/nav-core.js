@@ -884,10 +884,14 @@ const NavCore = (function() {
 
             console.log(`[NavCore] 当前位置距起点: ${distance.toFixed(1)}米`);
 
+            // 创建用户位置标记（到达起点前显示"我的位置"图标）
+            NavRenderer.updateUserMarker(currentPos, 0, false, false);
+
             // 如果距离超过20米，绘制蓝色引导线并提示
             if (distance > 20) {
                 NavRenderer.drawGuidanceLine(currentPos, startPos);
                 console.log('[NavCore] 已绘制蓝色指引线');
+            }
                 
                 // 更新上方提示栏：显示"请前往起点"
                 if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
@@ -1014,24 +1018,59 @@ const NavCore = (function() {
     }
 
     /**
-     * 在当前段点集中查找5米范围内最近的点
+     * 在当前段点集中查找6米范围内最近的点（只在当前节内吸附）
      * @param {Array} gpsPosition - GPS位置 [lng, lat]
      * @returns {Object|null} { index, position, distance, globalIndex }
      */
     function findNearestPointInSet(gpsPosition) {
         // 使用当前段的点集
         const pointSet = window.currentSegmentPointSet;
+        const turningPoints = window.currentSegmentTurningPoints;
 
         if (!pointSet || pointSet.length === 0) {
             return null;
         }
 
+        // 如果当前处于偏离状态，扩大搜索范围到整个当前段
+        const isDeviated = NavRenderer.isDeviated();
+
+        // 确定当前节的范围（两个转向点之间为一节）
+        let sectionStart = 0;  // 当前节起始点索引
+        let sectionEnd = pointSet.length - 1;  // 当前节结束点索引
+
+        if (!isDeviated && turningPoints && turningPoints.length > 0) {
+            // 非偏离状态：只在当前节内查找
+            if (currentSnappedIndex >= 0) {
+                // 找到当前吸附点所在节的范围
+                let prevTurnIndex = -1;
+                let nextTurnIndex = pointSet.length - 1;
+
+                for (let i = 0; i < turningPoints.length; i++) {
+                    if (turningPoints[i].pointIndex <= currentSnappedIndex) {
+                        prevTurnIndex = turningPoints[i].pointIndex;
+                    }
+                    if (turningPoints[i].pointIndex > currentSnappedIndex && nextTurnIndex === pointSet.length - 1) {
+                        nextTurnIndex = turningPoints[i].pointIndex;
+                        break;
+                    }
+                }
+
+                sectionStart = prevTurnIndex >= 0 ? prevTurnIndex : 0;
+                sectionEnd = nextTurnIndex;
+            } else {
+                // 首次吸附，搜索第一节（起点到第一个转向点）
+                sectionEnd = turningPoints[0] ? turningPoints[0].pointIndex : pointSet.length - 1;
+            }
+        }
+        // 偏离状态：sectionStart=0, sectionEnd=pointSet.length-1，搜索整个当前段
+
+        // 在指定范围内查找最近点
         let nearestIndex = -1;
         let nearestDistance = Infinity;
         let nearestPosition = null;
         let nearestGlobalIndex = -1;
 
-        for (let i = 0; i < pointSet.length; i++) {
+        for (let i = sectionStart; i <= sectionEnd && i < pointSet.length; i++) {
             const point = pointSet[i];
             const pos = point.position;
             const lng = Array.isArray(pos) ? pos[0] : pos.lng;
@@ -1050,13 +1089,14 @@ const NavCore = (function() {
             }
         }
 
-        // 只返回5米范围内的点
-        if (nearestDistance <= 5) {
+        // 只返回6米范围内的点
+        if (nearestDistance <= 6) {
             return {
                 index: nearestIndex, // 当前段内的相对索引
                 globalIndex: nearestGlobalIndex, // 全局索引
                 position: nearestPosition,
-                distance: nearestDistance
+                distance: nearestDistance,
+                crossedSection: isDeviated // 标记是否跨节接入
             };
         }
 
@@ -1595,13 +1635,16 @@ const NavCore = (function() {
                 // 清除引导线
                 NavRenderer.clearGuideLine();
 
+                // 初始化最后吸附位置（用于偏离轨迹起点）
+                NavRenderer.setLastSnappedPosition(snapped.position);
+
                 // 播报"已到达起点"
                 if (!window.hasAnnouncedNavigationStart) {
                     window.hasAnnouncedNavigationStart = true;
                     const firstSegment = segmentRanges[0];
                     const targetName = firstSegment.name.split('到')[1];
                     NavTTS.speak(`已到达起点，前往${targetName}`, { force: true });
-                    console.log('[NavCore] 已到达起点，开始正式导航');
+                    console.log('[NavCore] ✓ 已到达起点，开始正式导航');
                 }
             }
 
@@ -1648,9 +1691,42 @@ const NavCore = (function() {
             let displayHeading = gpsHeading; // 默认显示GPS方向
 
             if (snapped) {
-                // 吸附成功，使用吸附位置
+                // ========== 吸附成功 ==========
+
+                // 检查是否从偏离状态恢复
+                if (NavRenderer.isDeviated()) {
+                    // 判断是否跨节接入（偏离后接入到不同的节）
+                    const crossedSection = snapped.crossedSection || false;
+                    const isSameSegment = true; // 当前逻辑下，吸附成功必然是当前段
+                    const deviationInfo = NavRenderer.endDeviation(snapped.position, isSameSegment);
+
+                    if (deviationInfo) {
+                        console.log('[NavCore] 偏离后重新接入路网:',
+                            `起点索引=${currentSnappedIndex}`,
+                            `接入索引=${snapped.index}`,
+                            crossedSection ? '(跨节接入)' : '(同节接入)',
+                            isSameSegment ? '(同一路段)' : '(不同路段)');
+
+                        // 如果跨节接入，需要重置转向点提示状态
+                        if (crossedSection && snapped.index !== currentSnappedIndex) {
+                            // 重置转向点提示状态，避免错过当前节的转向提示
+                            lastTurningPointIndex = -1;
+                            hasPrompted1_4 = false;
+                            hasPromptedBefore = false;
+                            console.log('[NavCore] 跨节接入，已重置转向点提示状态');
+                        }
+
+                        // 播报"已回到规划路线"
+                        NavTTS.speak('已回到规划路线', { force: false });
+                    }
+                }
+
+                // 使用吸附位置
                 displayPosition = snapped.position;
                 snappedPosition = snapped.position;
+
+                // 更新最后吸附位置（用于下次偏离的起点）
+                NavRenderer.setLastSnappedPosition(snapped.position);
 
                 // 更新吸附索引（使用段内相对索引）
                 lastSnappedIndex = currentSnappedIndex;
@@ -1687,20 +1763,39 @@ const NavCore = (function() {
                     NavRenderer.setCenterOnly(displayPosition, true);
                 }
             } else {
-                // 未吸附到路网（偏离路线超过5米）
-                console.log('[点集吸附] 超出5米范围，使用GPS原始位置');
+                // ========== 未吸附到路网（偏离路线超过6米）==========
+                console.log('[点集吸附] 超出6米范围，进入偏离状态');
+
+                // 获取最后吸附位置作为偏离起点
+                const lastSnappedPos = NavRenderer.getLastSnappedPosition();
+
+                if (lastSnappedPos) {
+                    // 启动偏离轨迹（如果尚未启动）
+                    if (!NavRenderer.isDeviated()) {
+                        NavRenderer.startDeviation(lastSnappedPos);
+                        console.log('[NavCore] 开始偏离轨迹，起点:', lastSnappedPos);
+                    }
+
+                    // 更新偏离轨迹（实时绘制黄色线）
+                    NavRenderer.updateDeviationLine(position);
+                }
 
                 // 显示GPS原始位置和方向
                 displayPosition = position;
                 displayHeading = gpsHeading;
 
-                // 如果之前有吸附过，绘制从最后吸附点到当前位置的灰色连接线
-                if (currentSnappedIndex >= 0) {
-                    NavRenderer.updatePassedRoute(currentSnappedIndex, position);
-                }
-
                 // 地图跟随GPS位置移动
                 NavRenderer.setCenterOnly(position, true);
+
+                // 更新导航提示：提示偏离路线
+                if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
+                    NavUI.updateNavigationTip({
+                        type: 'deviation',
+                        action: '偏离路线',
+                        distance: 0,
+                        message: '您已偏离规划路线'
+                    });
+                }
             }
 
             // 5. 更新用户位置标记（已到达起点后）
