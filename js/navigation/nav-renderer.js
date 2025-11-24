@@ -520,27 +520,11 @@ const NavRenderer = (function() {
                     }
                 }
 
-                // 更新位置
-                if (smooth) {
-                    // 平滑移动（使用高德的 moveTo 方法）
-                    if (typeof userMarker.moveTo === 'function') {
-                        userMarker.moveTo(position, {
-                            duration: 300,  // 300毫秒平滑移动
-                            delay: 0
-                        });
-                    } else if (typeof userMarker.setPosition === 'function') {
-                        userMarker.setPosition(position);
-                    } else if (typeof userMarker.setCenter === 'function') {
-                        // CircleMarker使用setCenter
-                        userMarker.setCenter(position);
-                    }
-                } else {
-                    // 直接跳转
-                    if (typeof userMarker.setPosition === 'function') {
-                        userMarker.setPosition(position);
-                    } else if (typeof userMarker.setCenter === 'function') {
-                        userMarker.setCenter(position);
-                    }
+                // 更新位置（统一使用直接设置，避免 moveTo 在未加载动画插件时静默失败）
+                if (typeof userMarker.setPosition === 'function') {
+                    userMarker.setPosition(position);
+                } else if (typeof userMarker.setCenter === 'function') {
+                    userMarker.setCenter(position);
                 }
             }
 
