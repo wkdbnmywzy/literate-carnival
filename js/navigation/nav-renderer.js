@@ -405,10 +405,19 @@ const NavRenderer = (function() {
         try {
             if (!map) return;
 
-            // 根据导航状态选择图标
-            const iconImage = hasStarted 
+            // 根据导航状态选择图标和尺寸
+            const iconImage = hasStarted
                 ? 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png'  // 导航中：临时车图标
                 : 'images/工地数字导航小程序切图/司机/2X/地图icon/我的位置.png';  // 未开始：我的位置图标
+
+            // 根据图标类型设置尺寸（保持原图比例）
+            const iconSize = hasStarted
+                ? new AMap.Size(36, 54)  // 临时车：宽高比 2:3
+                : new AMap.Size(40, 40);  // 我的位置：正方形
+
+            const iconOffset = hasStarted
+                ? new AMap.Pixel(-18, -27)  // 临时车居中偏移
+                : new AMap.Pixel(-20, -20); // 我的位置居中偏移
 
             if (!userMarker) {
                 // 创建用户位置标记
@@ -416,11 +425,11 @@ const NavRenderer = (function() {
                 userMarker = new AMap.Marker({
                     position: position,
                     icon: new AMap.Icon({
-                        size: new AMap.Size(40, 40),
+                        size: iconSize,
                         image: iconImage,
-                        imageSize: new AMap.Size(40, 40)
+                        imageSize: iconSize  // 使用相同尺寸，保持原图比例
                     }),
-                    offset: new AMap.Pixel(-20, -20),
+                    offset: iconOffset,
                     zIndex: 300,
                     map: map
                 });
@@ -430,16 +439,17 @@ const NavRenderer = (function() {
                     console.warn('[NavRenderer] 用户标记不在地图上，重新添加');
                     userMarker.setMap(map);
                 }
-                
+
                 // 更新图标（如果状态改变）
                 const currentIcon = userMarker.getIcon();
                 if (currentIcon && currentIcon.getImageUrl() !== iconImage) {
                     console.log('[NavRenderer] 切换位置图标:', hasStarted ? '临时车' : '我的位置');
                     userMarker.setIcon(new AMap.Icon({
-                        size: new AMap.Size(40, 40),
+                        size: iconSize,
                         image: iconImage,
-                        imageSize: new AMap.Size(40, 40)
+                        imageSize: iconSize  // 使用相同尺寸，保持原图比例
                     }));
+                    userMarker.setOffset(iconOffset);  // 同时更新偏移量
                 }
 
                 // 更新位置
@@ -496,11 +506,14 @@ const NavRenderer = (function() {
         try {
             if (!map) return;
 
+            console.log('[NavRenderer] 更新方向指示器:', show ? '显示' : '隐藏');
+
             if (!show) {
                 // 隐藏方向指示器
                 if (directionIndicator) {
                     map.remove(directionIndicator);
                     directionIndicator = null;
+                    console.log('[NavRenderer] 方向指示器已隐藏');
                 }
                 return;
             }
@@ -516,21 +529,31 @@ const NavRenderer = (function() {
                 DirectionOverlay.prototype.onAdd = function() {
                     const div = document.createElement('div');
                     div.style.position = 'absolute';
-                    div.style.width = '120px';
-                    div.style.height = '120px';
+                    div.style.width = '160px';  // 增大尺寸，更清晰
+                    div.style.height = '160px';
                     div.style.pointerEvents = 'none';  // 不阻挡地图交互
-                    div.style.zIndex = '299';  // 在用户标记下方
-                    
+                    div.style.zIndex = '301';  // 在用户标记上方
+
                     const img = document.createElement('img');
                     img.src = 'images/工地数字导航小程序切图/司机/2X/导航/方向指示.png';
                     img.style.width = '100%';
                     img.style.height = '100%';
-                    img.style.opacity = '0.8';
-                    
+                    img.style.opacity = '0.7';  // 稍微透明，不遮挡地图
+
+                    // 添加加载成功/失败监听
+                    img.onload = function() {
+                        console.log('[NavRenderer] 方向指示图片加载成功');
+                    };
+                    img.onerror = function() {
+                        console.error('[NavRenderer] 方向指示图片加载失败:', img.src);
+                    };
+
                     div.appendChild(img);
                     this.el = div;
                     this.map.getContainer().appendChild(div);
                     this.updatePosition();
+
+                    console.log('[NavRenderer] 方向指示器DOM已创建');
                 };
 
                 DirectionOverlay.prototype.onRemove = function() {
@@ -543,8 +566,8 @@ const NavRenderer = (function() {
                 DirectionOverlay.prototype.updatePosition = function() {
                     if (!this.el) return;
                     const pixel = this.map.lngLatToContainer(this.position);
-                    this.el.style.left = (pixel.x - 60) + 'px';  // 居中（120/2=60）
-                    this.el.style.top = (pixel.y - 60) + 'px';
+                    this.el.style.left = (pixel.x - 80) + 'px';  // 居中（160/2=80）
+                    this.el.style.top = (pixel.y - 80) + 'px';
                 };
 
                 DirectionOverlay.prototype.setPosition = function(position) {
@@ -562,7 +585,7 @@ const NavRenderer = (function() {
                     }
                 });
 
-                console.log('[NavRenderer] 方向指示器已创建');
+                console.log('[NavRenderer] 方向指示器已创建，位置:', position);
             } else {
                 // 更新位置
                 directionIndicator.setPosition(position);
