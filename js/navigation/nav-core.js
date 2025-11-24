@@ -1677,6 +1677,9 @@ const NavCore = (function() {
                 // 更新用户位置标记（使用GPS原始位置和方向）
                 NavRenderer.updateUserMarker(position, gpsHeading, true, false);
 
+                // 地图跟随用户位置（新增）
+                NavRenderer.setCenterOnly(position, true);
+
                 // 更新精度圈
                 NavRenderer.updateAccuracyCircle(position, accuracy);
 
