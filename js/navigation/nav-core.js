@@ -91,6 +91,18 @@ const NavCore = (function() {
                         if (heading < 0) heading += 360;
                         heading = heading % 360;
                         deviceHeading = heading;
+
+                        // 起点前实时用设备朝向驱动图标旋转（与首页一致地“跟手”）
+                        try {
+                            if (isNavigating && !hasReachedStart) {
+                                const finalAngleRaw = getAdjustedAngle(deviceHeading);
+                                const finalAngle = smoothAngleEMA(lastSmoothedAngle, finalAngleRaw);
+                                lastSmoothedAngle = finalAngle;
+                                if (typeof NavRenderer.setUserMarkerAngle === 'function') {
+                                    NavRenderer.setUserMarkerAngle(finalAngle);
+                                }
+                            }
+                        } catch (err) {}
                     }
                 };
                 if ('ondeviceorientationabsolute' in window) {
