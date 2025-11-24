@@ -531,9 +531,14 @@ const NavRenderer = (function() {
                 }
             }
 
-            // 更新方向（如果需要且支持）
+            // 更新方向：未到达起点需与首页一致使用真实朝向（减去地图旋转），到达起点后保持路线朝向
             if (heading !== null && heading !== undefined && typeof userMarker.setAngle === 'function') {
-                userMarker.setAngle(heading);
+                let finalAngle = heading;
+                if (!hasStarted && map && typeof map.getRotation === 'function') {
+                    const mapRot = map.getRotation() || 0;
+                    finalAngle = (heading - mapRot + 360) % 360;
+                }
+                userMarker.setAngle(finalAngle);
             }
 
             if (DEBUG_NAV_RENDERER) {
