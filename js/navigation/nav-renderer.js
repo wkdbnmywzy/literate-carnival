@@ -431,17 +431,18 @@ const NavRenderer = (function() {
 
             // 根据导航状态选择图标和尺寸
             const iconImage = hasStarted
-                ? 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png'  // 导航中：临时车图标
+                ? 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png'  // 导航中：车辆图标
                 : 'images/工地数字导航小程序切图/司机/2X/地图icon/我的位置.png';  // 未开始：我的位置图标
 
-            // 根据图标类型设置尺寸（保持原图比例）
+            // 图标尺寸：到达起点后车辆图标 62x31，未开始 40x40
             const iconSize = hasStarted
-                ? new AMap.Size(36, 54)  // 临时车：宽高比 2:3
-                : new AMap.Size(40, 40);  // 我的位置：正方形
+                ? new AMap.Size(62, 31)
+                : new AMap.Size(40, 40);
 
+            // 偏移：使用宽高一半使旋转中心居中（31, 15.5≈16）
             const iconOffset = hasStarted
-                ? new AMap.Pixel(-18, -27)  // 临时车居中偏移
-                : new AMap.Pixel(-20, -20); // 我的位置居中偏移
+                ? new AMap.Pixel(-31, -16)
+                : new AMap.Pixel(-20, -20);
 
             if (!userMarker) {
                 // 创建用户位置标记
