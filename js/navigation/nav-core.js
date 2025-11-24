@@ -891,14 +891,13 @@ const NavCore = (function() {
             if (distance > 20) {
                 NavRenderer.drawGuidanceLine(currentPos, startPos);
                 console.log('[NavCore] 已绘制蓝色指引线');
-            }
-                
+
                 // 更新上方提示栏：显示"请前往起点"
                 if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
-                    const distanceText = distance < 1000 
-                        ? `${Math.round(distance)}米` 
+                    const distanceText = distance < 1000
+                        ? `${Math.round(distance)}米`
                         : `${(distance / 1000).toFixed(1)}公里`;
-                    
+
                     NavUI.updateNavigationTip({
                         type: 'straight',
                         action: '前往起点',
@@ -906,16 +905,15 @@ const NavCore = (function() {
                         message: `前往起点 ${distanceText}`
                     });
                 }
-                
+
                 // 语音播报：请前往起点
-                const distanceText = distance < 1000 
-                    ? `${Math.round(distance)}米` 
+                const distanceText = distance < 1000
+                    ? `${Math.round(distance)}米`
                     : `${(distance / 1000).toFixed(1)}公里`;
                 NavTTS.speak(`距离起点${distanceText}，请先前往起点`, { force: true });
-                
             } else {
                 console.log('[NavCore] 已在起点附近，无需绘制指引线');
-                
+
                 // 在起点附近，播报正常的导航开始提示
                 const firstSegment = segmentRanges[0];
                 const targetName = firstSegment.name.split('到')[1];
