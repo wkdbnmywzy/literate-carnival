@@ -47,10 +47,6 @@ const NavCore = (function() {
 
     // 导航阶段状态
     let hasReachedStart = false;    // 是否已到达起点（用于切换位置图标）
-    // 设备方向相关（未到达起点时用设备方向实时旋转图标）
-    let orientationActive = false;
-    let preStartLastPosition = null;
-    let orientationCallback = null;
 
     /**
      * 初始化导航核心模块
@@ -90,32 +86,6 @@ const NavCore = (function() {
     function onMapComplete() {
         loadKMLData();
         loadRouteData();
-    }
-
-    // ===== 设备方向追踪（仅未到达起点阶段使用设备朝向旋转图标）=====
-    function startOrientationTracking() {
-        if (orientationActive) return;
-        if (typeof NavOrientation === 'undefined') return;
-        const ok = NavOrientation.init({ throttle: 120 });
-        if (!ok) return;
-        orientationActive = true;
-        orientationCallback = (heading) => {
-            if (!isNavigating || hasReachedStart) return;
-            if (!preStartLastPosition) return; // 尚无定位
-            NavRenderer.updateUserMarker(preStartLastPosition, heading, false, false);
-        };
-        NavOrientation.subscribe(orientationCallback);
-        if (window.NAV_DEBUG) console.debug('[NavCore][DEBUG] 设备方向追踪启动');
-    }
-
-    function stopOrientationTracking() {
-        if (!orientationActive) return;
-        if (typeof NavOrientation !== 'undefined' && orientationCallback) {
-            NavOrientation.unsubscribe(orientationCallback);
-        }
-        orientationActive = false;
-        orientationCallback = null;
-        if (window.NAV_DEBUG) console.debug('[NavCore][DEBUG] 设备方向追踪停止');
     }
 
     /**
@@ -807,8 +777,6 @@ const NavCore = (function() {
 
             // 启动GPS监听
             NavGPS.startWatch(onGPSUpdate, onGPSError);
-            // 启动设备方向追踪（用于前往起点阶段朝向显示）
-            startOrientationTracking();
 
             // 启动定时更新
             startUpdateTimer();
@@ -1661,8 +1629,6 @@ const NavCore = (function() {
                 // 第一次吸附到路网，说明到达起点
                 hasReachedStart = true;
                 window.hasReachedStart = true;
-                // 到达起点后停止设备方向追踪（后续使用路网方向）
-                stopOrientationTracking();
 
                 // 清除引导线
                 NavRenderer.clearGuideLine();
@@ -1689,16 +1655,7 @@ const NavCore = (function() {
                 );
 
                 // 更新用户位置标记（先更新，避免引导线绘制时用户标记未刷新）
-                // 保存最近位置供设备方向事件使用
-                preStartLastPosition = position;
-                // 优先使用设备方向
-                let headingForDisplay = gpsHeading;
-                if (orientationActive && typeof NavOrientation !== 'undefined') {
-                    const h = NavOrientation.getHeading();
-                    if (!isNaN(h)) headingForDisplay = h;
-                }
-                // 更新用户位置标记（先更新，避免引导线绘制时用户标记未刷新）
-                NavRenderer.updateUserMarker(position, headingForDisplay, false, false);
+                NavRenderer.updateUserMarker(position, gpsHeading, false, false);
 
                 // 实时绘制引导线
                 NavRenderer.drawGuidanceLine(position, startPos);
