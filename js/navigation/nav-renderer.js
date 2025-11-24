@@ -551,6 +551,21 @@ const NavRenderer = (function() {
         }
     }
 
+    // 仅更新用户标记角度（不改变位置和图标）
+    function setUserMarkerAngle(angle) {
+        try {
+            if (!map || !userMarker) return;
+            if (angle === null || angle === undefined || isNaN(angle)) return;
+            if (typeof userMarker.setAngle === 'function') {
+                userMarker.setAngle(angle);
+            } else if (typeof userMarker.setRotation === 'function') {
+                userMarker.setRotation(angle);
+            }
+        } catch (e) {
+            console.error('[NavRenderer] 设置用户标记角度失败:', e);
+        }
+    }
+
     /**
      * 创建或更新方向指示器（东南西北）
      * @param {Array} position - 位置 [lng, lat]
@@ -1240,6 +1255,7 @@ const NavRenderer = (function() {
         addWaypointMarkers,
         updateUserMarker,
         updateDirectionIndicator,
+        setUserMarkerAngle,
         updateAccuracyCircle,
         setHeadingUpMode,
         setCenterOnly,  // 【新增】只移动中心，不旋转
