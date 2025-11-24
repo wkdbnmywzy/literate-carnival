@@ -24,6 +24,7 @@ const NavGPS = (function() {
     let recentPositions = [];
     let lastPosition = null;
     let lastUpdateTime = 0;
+    let lastHeading = 0; // 最近一次有效朝向（度）
 
     // watchPosition ID
     let watchId = null;
@@ -375,7 +376,7 @@ const NavGPS = (function() {
             let lng = position.coords.longitude;
             let lat = position.coords.latitude;
             const accuracy = position.coords.accuracy || 10;
-            const heading = position.coords.heading || 0; // 获取设备方向
+            let headingRaw = position.coords.heading; // 可能为 null / NaN / -1
 
             const converted = convertCoordinates(lng, lat);
             lng = converted[0];
@@ -391,10 +392,13 @@ const NavGPS = (function() {
             }
 
             // 检查是否是静止/飘移
+            // 计算或回退朝向
+            const computedHeading = computeHeading(pos, validation.isStationary);
+
             if (validation.isStationary) {
-                // 移动距离太小：不写入历史以免影响速度，但将“当前新坐标”推给UI，确保图标可见移动
+                // 静止：不加入历史，但仍推送当前坐标与朝向（防止图标停滞）
                 if (onPositionUpdate) {
-                    onPositionUpdate(pos, accuracy, heading);
+                    onPositionUpdate(pos, accuracy, computedHeading);
                 }
                 return;
             }
@@ -405,11 +409,58 @@ const NavGPS = (function() {
             lastUpdateTime = Date.now();
 
             if (onPositionUpdate) {
-                onPositionUpdate(pos, accuracy, heading);
+                onPositionUpdate(pos, accuracy, computedHeading);
             }
         } catch (e) {
             console.error('[NavGPS] 处理GPS位置失败:', e);
         }
+    }
+
+    // 根据原始 heading 或两点计算 bearing，回退到 lastHeading
+    function computeHeading(currentPos, isStationary) {
+        try {
+            let heading = null;
+            // 尝试使用原始 headingRaw
+            if (typeof headingRaw === 'number' && !isNaN(headingRaw) && headingRaw >= 0) {
+                heading = headingRaw;
+            }
+
+            // 原始 heading 不可靠时，使用最近一次有效移动方向
+            if (heading == null) {
+                if (recentPositions.length > 0) {
+                    const prev = recentPositions[recentPositions.length - 1];
+                    const b = bearingBetween(prev, currentPos);
+                    if (!isNaN(b)) heading = b;
+                }
+            }
+
+            // 静止时保持最后朝向
+            if (isStationary && heading == null) {
+                heading = lastHeading;
+            }
+
+            if (heading == null) heading = lastHeading;
+
+            // 归一化
+            heading = ((heading % 360) + 360) % 360;
+            lastHeading = heading;
+            return heading;
+        } catch (e) {
+            return lastHeading;
+        }
+    }
+
+    function bearingBetween(pos1, pos2) {
+        const [lng1, lat1] = pos1;
+        const [lng2, lat2] = pos2;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const lat1Rad = lat1 * Math.PI / 180;
+        const lat2Rad = lat2 * Math.PI / 180;
+        const y = Math.sin(dLng) * Math.cos(lat2Rad);
+        const x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLng);
+        let brng = Math.atan2(y, x) * 180 / Math.PI;
+        brng = (brng + 360) % 360;
+        return brng;
     }
 
     /**
