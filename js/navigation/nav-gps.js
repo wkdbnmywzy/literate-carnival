@@ -10,7 +10,7 @@ const NavGPS = (function() {
     // GPS配置
     let config = {
         filterEnabled: true,           // GPS过滤开关
-        maxJumpDistance: 30,           // 最大跳跃距离（米）- 降低到30米，更严格
+        maxJumpDistance: 100,          // 最大跳跃距离（米）- 增加到100米，避免初始定位偏差导致后续更新被拒
         maxHistorySize: 5,             // 历史记录大小
         maxAccuracy: 50,               // 最大允许精度误差（米）- 降低到50米
         maxSpeed: 15,                  // 最大速度（米/秒，54km/h）- 工地车辆速度较慢
