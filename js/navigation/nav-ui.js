@@ -584,23 +584,41 @@ const NavUI = (function() {
 
     /**
      * 显示导航完成弹窗
+     * @param {Object} stats - 统计数据 { distance: 米, time: 秒 }
      */
-    function showNavigationCompleteModal() {
+    function showNavigationCompleteModal(stats = {}) {
         const modal = document.getElementById('navigation-complete-modal');
         if (modal) {
-            // 计算总距离和时间（可以从核心模块获取）
-            const totalDistance = 0; // TODO: 从核心模块获取
-            const totalTime = 0; // TODO: 从核心模块获取
+            // 获取统计数据
+            const totalDistance = stats.distance || 0; // 米
+            const totalTime = stats.time || 0; // 秒
+
+            console.log('[NavUI] 显示完成弹窗，统计数据:', stats);
 
             // 更新弹窗内容
             const distanceElem = document.getElementById('complete-distance');
             const timeElem = document.getElementById('complete-time');
+            const distanceUnitElem = distanceElem ? distanceElem.parentElement.querySelector('.complete-unit') : null;
 
             if (distanceElem) {
-                distanceElem.textContent = (totalDistance / 1000).toFixed(1);
+                // 距离显示：大于1000米显示公里，否则显示米
+                if (totalDistance >= 1000) {
+                    distanceElem.textContent = (totalDistance / 1000).toFixed(1);
+                    if (distanceUnitElem) distanceUnitElem.textContent = 'km';
+                } else {
+                    distanceElem.textContent = Math.round(totalDistance);
+                    if (distanceUnitElem) distanceUnitElem.textContent = 'm';
+                }
             }
             if (timeElem) {
-                timeElem.textContent = Math.ceil(totalTime / 60);
+                // 时间显示：大于60秒显示分钟，否则显示秒
+                if (totalTime >= 60) {
+                    timeElem.textContent = Math.ceil(totalTime / 60);
+                    // 单位已经是"分钟"，不需要修改
+                } else {
+                    timeElem.textContent = Math.ceil(totalTime);
+                    // 可以改为"秒"，但这里保持"分钟"显示0
+                }
             }
 
             modal.classList.add('active');

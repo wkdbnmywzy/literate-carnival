@@ -48,6 +48,10 @@ const NavCore = (function() {
     // 导航阶段状态
     let hasReachedStart = false;    // 是否已到达起点（用于切换位置图标）
 
+    // 导航统计数据
+    let navigationStartTime = null;  // 导航开始时间
+    let totalTravelDistance = 0;     // 总行程距离（米）
+
     // 设备朝向（导航页未引入首页 map-core.js，需要独立监听）
     let deviceHeading = null;       // 设备方向（0-360，正北为0，顺时针）
     let lastRawHeading = null;      // 上一次用于UI的有效朝向
@@ -486,6 +490,64 @@ const NavCore = (function() {
     }
 
     /**
+     * 检查段间转向（从上一段末到当前段首）
+     * 只在首次吸附到段首附近（前5个点）时播报
+     */
+    function checkSegmentTransition() {
+        try {
+            const fullPointSet = window.navigationPointSet;
+            const currentSegmentPointSet = window.currentSegmentPointSet;
+
+            if (!fullPointSet || !currentSegmentPointSet || currentSegmentIndex === 0) {
+                return; // 第一段没有段间转向
+            }
+
+            // 【改进】只有在首次吸附到段首附近时才播报转向
+            // 如果吸附到后面的节，说明用户已经完成转向，不需要播报
+            if (currentSnappedIndex > 5) {
+                console.log(`[段间转向] 已吸附到第${currentSnappedIndex}个点，跳过段间转向播报`);
+                return;
+            }
+
+            // 获取上一段的最后两个点
+            const prevSegment = segmentRanges[currentSegmentIndex - 1];
+            if (prevSegment.end < 2) return; // 上一段点不够
+
+            const prevPrevPoint = fullPointSet[prevSegment.end - 1].position;
+            const prevEndPoint = fullPointSet[prevSegment.end].position; // 途经点（既是上段终点，也是本段起点）
+
+            // 获取当前段的前两个点
+            if (currentSegmentPointSet.length < 2) return;
+            const currStartPoint = currentSegmentPointSet[0].position; // 途经点
+            const currNextPoint = currentSegmentPointSet[1].position;
+
+            // 计算段间转向角
+            const bearingIn = calculateBearing(prevPrevPoint, prevEndPoint);  // 上一段进入途经点的方向
+            const bearingOut = calculateBearing(currStartPoint, currNextPoint); // 当前段离开途经点的方向
+
+            let turnAngle = bearingOut - bearingIn;
+            if (turnAngle > 180) turnAngle -= 360;
+            if (turnAngle < -180) turnAngle += 360;
+
+            const absTurnAngle = Math.abs(turnAngle);
+            const turnType = getTurnType(turnAngle);
+
+            console.log(`[段间转向] 转向角: ${turnAngle.toFixed(1)}°, 类型: ${turnType}, 当前吸附索引: ${currentSnappedIndex}`);
+
+            // 如果转向角度 >= 30度，播报转向指令
+            if (absTurnAngle >= 30) {
+                const action = getTurnActionText(turnType);
+                console.log(`[段间转向] 播报: ${action}`);
+                NavTTS.speak(`请${action}`, { force: true });
+            } else {
+                console.log(`[段间转向] 角度较小，继续直行`);
+            }
+        } catch (e) {
+            console.error('[段间转向] 检测失败:', e);
+        }
+    }
+
+    /**
      * 检查是否完成当前路段并切换到下一段
      * @param {number} currentIndex - 当前点索引（段内相对索引）
      * @param {Array} gpsPosition - GPS原始位置 [lng, lat]
@@ -554,24 +616,9 @@ const NavCore = (function() {
                 // 显示下一段的绿色路线（会重新计算转向点）
                 showCurrentSegmentRoute();
 
-                // 检查是否需要掉头（检查下一段的第一个转向点）
-                setTimeout(() => {
-                    const turningPoints = window.currentSegmentTurningPoints;
-                    if (turningPoints && turningPoints.length > 0) {
-                        const firstTurn = turningPoints[0];
-                        // 如果第一个转向点是掉头，且在前5个点内（说明需要立即掉头）
-                        if (firstTurn.turnType === 'uturn' && firstTurn.pointIndex < 5) {
-                            console.log(`[段间掉头] 检测到下一段需要掉头 (转向点索引:${firstTurn.pointIndex})`);
-                            NavTTS.speak('请掉头', { force: true });
-                        } else if (firstTurn.pointIndex < 3) {
-                            // 如果第一个转向点很近，提前播报
-                            const action = getTurnActionText(firstTurn.turnType);
-                            console.log(`[段间转向] 检测到下一段需要${action} (转向点索引:${firstTurn.pointIndex})`);
-                            NavTTS.speak(`请${action}`, { force: true });
-                        }
-                    }
-                    isInSegmentTransition = false;
-                }, 1500); // 1.5秒后播报转向指令
+                // 【改进】不再使用固定1.5秒延迟，而是在首次吸附后检测段间转向
+                // 段间转向检测会在 onGPSUpdate 中首次吸附成功后触发
+                isInSegmentTransition = true;  // 标记为段间过渡中
 
                 return true;
             } else {
@@ -713,7 +760,7 @@ const NavCore = (function() {
     }
 
     /**
-     * 检测转向点（相邻点检测法）
+     * 检测转向点（相邻点检测法，包含段首和段末）
      * @param {Array} pointSet - 重采样后的点集
      * @param {number} angleThreshold - 角度阈值（度），默认30度
      * @returns {Array} 转向点数组
@@ -721,27 +768,78 @@ const NavCore = (function() {
     function detectTurningPoints(pointSet, angleThreshold = 30) {
         const turningPoints = [];
 
-        for (let i = 1; i < pointSet.length - 1; i++) {
-            const prev = pointSet[i - 1].position;
-            const curr = pointSet[i].position;
-            const next = pointSet[i + 1].position;
+        if (!pointSet || pointSet.length < 2) {
+            return turningPoints;
+        }
 
-            const bearingIn = calculateBearing(prev, curr);
-            const bearingOut = calculateBearing(curr, next);
+        for (let i = 0; i < pointSet.length; i++) {
+            let prev, curr, next;
+            let bearingIn, bearingOut;
+            let turnAngle;
 
-            let turnAngle = bearingOut - bearingIn;
-            if (turnAngle > 180) turnAngle -= 360;
-            if (turnAngle < -180) turnAngle += 360;
+            if (i === 0) {
+                // 段首起点：检测是否需要立即转向/掉头
+                // 使用：前一段的最后方向 vs 当前段的第一段方向
+                // 但在当前段点集中，无法获取前一段信息，所以这里跳过
+                // 段首转向检测由段切换逻辑处理（checkSegmentCompletion中）
+                continue;
 
-            if (Math.abs(turnAngle) >= angleThreshold) {
-                turningPoints.push({
-                    pointIndex: i,
-                    position: curr,
-                    turnAngle: turnAngle,
-                    turnType: getTurnType(turnAngle),
-                    isOriginalPoint: pointSet[i].isOriginal,
-                    bearingAfterTurn: bearingOut
-                });
+            } else if (i === pointSet.length - 1) {
+                // 段末终点：检测从倒数第二个点到终点的转向
+                if (i < 1) continue;
+                prev = pointSet[i - 1].position;
+                curr = pointSet[i].position;
+
+                // 如果有下一段，需要检测终点的转向（用于段末掉头提示）
+                // 但这里只能检测段内转向，段间转向由段切换逻辑处理
+                // 所以这里先检测倒数第二个点到终点是否有转向
+                if (i >= 2) {
+                    // 有足够的点，可以计算终点转向
+                    const prevPrev = pointSet[i - 2].position;
+                    bearingIn = calculateBearing(prevPrev, prev);
+                    bearingOut = calculateBearing(prev, curr);
+
+                    turnAngle = bearingOut - bearingIn;
+                    if (turnAngle > 180) turnAngle -= 360;
+                    if (turnAngle < -180) turnAngle += 360;
+
+                    if (Math.abs(turnAngle) >= angleThreshold) {
+                        turningPoints.push({
+                            pointIndex: i,
+                            position: curr,
+                            turnAngle: turnAngle,
+                            turnType: getTurnType(turnAngle),
+                            isOriginalPoint: pointSet[i].isOriginal,
+                            bearingAfterTurn: bearingOut,
+                            isSegmentEnd: true  // 标记为段末转向点
+                        });
+                    }
+                }
+                continue;
+
+            } else {
+                // 中间点：正常检测
+                prev = pointSet[i - 1].position;
+                curr = pointSet[i].position;
+                next = pointSet[i + 1].position;
+
+                bearingIn = calculateBearing(prev, curr);
+                bearingOut = calculateBearing(curr, next);
+
+                turnAngle = bearingOut - bearingIn;
+                if (turnAngle > 180) turnAngle -= 360;
+                if (turnAngle < -180) turnAngle += 360;
+
+                if (Math.abs(turnAngle) >= angleThreshold) {
+                    turningPoints.push({
+                        pointIndex: i,
+                        position: curr,
+                        turnAngle: turnAngle,
+                        turnType: getTurnType(turnAngle),
+                        isOriginalPoint: pointSet[i].isOriginal,
+                        bearingAfterTurn: bearingOut
+                    });
+                }
             }
         }
 
@@ -1153,7 +1251,7 @@ const NavCore = (function() {
     }
 
     /**
-     * 在当前段点集中查找6米范围内最近的点（只在当前节内吸附）
+     * 在当前段点集中查找8米范围内最近的点（只在当前节内吸附）
      * @param {Array} gpsPosition - GPS位置 [lng, lat]
      * @returns {Object|null} { index, position, distance, globalIndex }
      */
@@ -1193,8 +1291,9 @@ const NavCore = (function() {
                 sectionStart = prevTurnIndex >= 0 ? prevTurnIndex : 0;
                 sectionEnd = nextTurnIndex;
             } else {
-                // 首次吸附，搜索第一节（起点到第一个转向点）
-                sectionEnd = turningPoints[0] ? turningPoints[0].pointIndex : pointSet.length - 1;
+                // 首次吸附或段切换后：搜索整个当前段（避免段切换时定位不准）
+                sectionStart = 0;
+                sectionEnd = pointSet.length - 1;
             }
         }
         // 偏离状态：sectionStart=0, sectionEnd=pointSet.length-1，搜索整个当前段
@@ -1224,8 +1323,8 @@ const NavCore = (function() {
             }
         }
 
-        // 只返回6米范围内的点
-        if (nearestDistance <= 6) {
+        // 只返回8米范围内的点
+        if (nearestDistance <= 8) {
             return {
                 index: nearestIndex, // 当前段内的相对索引
                 globalIndex: nearestGlobalIndex, // 全局索引
@@ -1767,6 +1866,11 @@ const NavCore = (function() {
                 hasReachedStart = true;
                 window.hasReachedStart = true;
 
+                // 【新增】记录导航开始时间
+                navigationStartTime = Date.now();
+                totalTravelDistance = 0;  // 重置总距离
+                console.log('[NavCore] 导航开始时间记录:', new Date(navigationStartTime).toLocaleTimeString());
+
                 // 清除引导线
                 NavRenderer.clearGuideLine();
 
@@ -1895,10 +1999,33 @@ const NavCore = (function() {
                 lastSnappedIndex = currentSnappedIndex;
                 currentSnappedIndex = snapped.index;
 
+                // 【新增】累计行程距离（只有前进时才累计）
+                if (hasReachedStart && lastSnappedIndex >= 0 && currentSnappedIndex > lastSnappedIndex) {
+                    // 计算从上一个点到当前点的距离
+                    const pointSet = window.currentSegmentPointSet;
+                    if (pointSet && lastSnappedIndex < pointSet.length && currentSnappedIndex < pointSet.length) {
+                        const prevPos = pointSet[lastSnappedIndex].position;
+                        const currPos = pointSet[currentSnappedIndex].position;
+                        const stepDistance = haversineDistance(
+                            prevPos[1], prevPos[0],
+                            currPos[1], currPos[0]
+                        );
+                        totalTravelDistance += stepDistance;
+                        console.log(`[统计] 行程累计: +${stepDistance.toFixed(1)}米, 总计${totalTravelDistance.toFixed(1)}米`);
+                    }
+                }
+
                 // 暴露到全局供UI使用
                 window.currentSnappedIndex = currentSnappedIndex;
 
                 console.log(`[点集吸附] 吸附到段内点${snapped.index}（全局${snapped.globalIndex}）, 距离${snapped.distance.toFixed(2)}米`);
+
+                // 【新增】段间过渡时，首次吸附成功后立即检测段间转向
+                if (isInSegmentTransition && lastSnappedIndex === -1) {
+                    console.log('[段间转向] 首次吸附成功，立即检测段间转向');
+                    checkSegmentTransition();
+                    isInSegmentTransition = false;
+                }
 
                 // 检查是否完成当前路段（到达段末）
                 const segmentCompleted = checkSegmentCompletion(currentSnappedIndex, position);
@@ -1926,8 +2053,8 @@ const NavCore = (function() {
                     NavRenderer.setCenterOnly(displayPosition, true);
                 }
             } else {
-                // ========== 未吸附到路网（偏离路线超过6米）==========
-                console.log('[点集吸附] 超出6米范围，进入偏离状态');
+                // ========== 未吸附到路网（偏离路线超过8米）==========
+                console.log('[点集吸附] 超出8米范围，进入偏离状态');
 
                 // 获取最后吸附位置作为偏离起点
                 const lastSnappedPos = NavRenderer.getLastSnappedPosition();
@@ -1988,14 +2115,25 @@ const NavCore = (function() {
         try {
             console.log('[NavCore] 导航完成！');
 
+            // 计算导航统计数据
+            const navigationEndTime = Date.now();
+            const totalTime = navigationStartTime ? (navigationEndTime - navigationStartTime) / 1000 : 0; // 秒
+
+            console.log('[NavCore] 导航统计:');
+            console.log(`  总行程: ${totalTravelDistance.toFixed(1)}米`);
+            console.log(`  总时间: ${Math.ceil(totalTime)}秒 (${Math.ceil(totalTime/60)}分钟)`);
+
             stopNavigation();
 
             // 语音提示
             NavTTS.speak('您已到达目的地，导航结束', { force: true });
 
-            // 显示完成弹窗
+            // 显示完成弹窗（传递统计数据）
             if (typeof NavUI !== 'undefined' && NavUI.showNavigationCompleteModal) {
-                NavUI.showNavigationCompleteModal();
+                NavUI.showNavigationCompleteModal({
+                    distance: totalTravelDistance,  // 米
+                    time: totalTime  // 秒
+                });
             }
         } catch (e) {
             console.error('[NavCore] 完成导航失败:', e);

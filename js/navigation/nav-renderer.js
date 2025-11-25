@@ -165,7 +165,8 @@ const NavRenderer = (function() {
         try {
             if (!map) return;
 
-            const pointSet = window.navigationPointSet;
+            // 使用当前段的点集（避免跨段绘制灰色路线）
+            const pointSet = window.currentSegmentPointSet;
             if (!pointSet || pointSet.length === 0) return;
 
             if (currentIndex >= 1) {
@@ -236,10 +237,8 @@ const NavRenderer = (function() {
             }
 
             if (passedConnectLine) {
-                // 连接线也降低层级
-                passedConnectLine.setOptions({ zIndex: 180 });
-                // 保存到数组
-                completedSegmentPolylines.push(passedConnectLine);
+                // 连接线是临时GPS位置线，直接删除，不固化保存
+                map.remove(passedConnectLine);
                 // 清除当前变量引用
                 passedConnectLine = null;
             }
