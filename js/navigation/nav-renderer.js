@@ -436,7 +436,7 @@ const NavRenderer = (function() {
             // 图标尺寸：到达起点后车辆图标 31x62，未开始 40x40
             const iconSize = hasStarted
                 ? new AMap.Size(31, 62)
-                : new AMap.Size(40, 40);
+                : new AMap.Size(42, 50);
 
             // 偏移：使用宽高一半使旋转中心居中（15.5≈16, 31）
             const iconOffset = hasStarted
