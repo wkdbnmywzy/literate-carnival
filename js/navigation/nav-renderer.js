@@ -1142,18 +1142,12 @@ const NavRenderer = (function() {
                 preserved: false
             };
 
-            // 保存当前偏离线到历史记录
+            // 隐藏偏离线但保留数据
             if (deviationPolyline) {
-                // 降低层级并保存
-                deviationPolyline.setOptions({
-                    zIndex: 180,  // 降低到绿色路线下方
-                    strokeOpacity: 0.6  // 稍微降低透明度
-                });
-                deviationHistory.push(deviationPolyline);
-                deviationPolyline = null;
+                deviationPolyline.hide(); // 隐藏偏离线
                 deviationInfo.preserved = true;
 
-                console.log('[NavRenderer] 偏离轨迹已保存，历史记录数:', deviationHistory.length);
+                console.log('[NavRenderer] 偏离轨迹已隐藏');
             }
 
             // 重置偏离状态
