@@ -52,6 +52,10 @@ const NavCore = (function() {
     let navigationStartTime = null;  // 导航开始时间
     let totalTravelDistance = 0;     // 总行程距离（米）
 
+    // 地图旋转校验机制相关
+    let mapRotationCorrected = false; // 当前是否已校正过地图旋转
+    let lastCorrectionTime = 0;      // 上一次校正的时间戳
+
     // 设备朝向（导航页未引入首页 map-core.js，需要独立监听）
     let deviceHeading = null;       // 设备方向（0-360，正北为0，顺时针）
     let lastRawHeading = null;      // 上一次用于UI的有效朝向
@@ -1482,10 +1486,10 @@ const NavCore = (function() {
                             type: nextTurnPoint.turnType,
                             action: turnAction,
                             distance: Math.round(distanceToTurn),
-                            message: `前方${Math.round(distanceToTurn)}米${turnAction}`
+                            message: `前方准备${turnAction}`
                         };
                         updateGuidanceUI(guidance);
-                        NavTTS.speak(`前方${Math.round(distanceToTurn)}米${turnAction}`, { force: true }); // 强制播报
+                        NavTTS.speak(`前方准备${turnAction}`, { force: true }); // 强制播报
                         hasPrompted1_4 = true;
                         lastGuidanceTime = now;
                     }
@@ -1517,10 +1521,10 @@ const NavCore = (function() {
                             type: nextTurnPoint.turnType,
                             action: turnAction,
                             distance: Math.round(distanceToTurn),
-                            message: `前方${Math.round(distanceToTurn)}米${turnAction}`
+                            message: `前方准备${turnAction}`
                         };
                         updateGuidanceUI(guidance);
-                        NavTTS.speak(`前方${Math.round(distanceToTurn)}米${turnAction}`, { force: true }); // 强制播报
+                        NavTTS.speak(`前方准备${turnAction}`, { force: true }); // 强制播报
                         hasPrompted1_4 = true;
                         lastGuidanceTime = now;
                     }
@@ -1534,7 +1538,7 @@ const NavCore = (function() {
                     type: nextTurnPoint.turnType,
                     action: turnAction,
                     distance: Math.round(distanceToTurn),
-                    message: `前方${Math.round(distanceToTurn)}米${turnAction}`
+                    message: `前方准备${turnAction}`
                 }, false); // 不播报
 
                 // 尝试智能直行提示（在转向点之间的长距离路段）
@@ -1727,10 +1731,10 @@ const NavCore = (function() {
             let message;
             let actionType;
             if (straightType === 'regular') {
-                message = `继续直行${Math.round(straightDistance)}米`;
+                message = `继续直行`;
                 actionType = 'straight-regular';
             } else {
-                message = `沿当前道路继续行走${Math.round(straightDistance)}米`;
+                message = `沿当前道路继续直行`;
                 actionType = 'straight-irregular';
             }
 
@@ -1842,6 +1846,84 @@ const NavCore = (function() {
         }
 
         return null;
+    }
+
+    /**
+     * 检查道路是否竖直（接近南北走向）
+     * @param {number} bearing - 道路方位角（0-360度）
+     * @param {number} threshold - 竖直判定阈值，默认15度
+     * @returns {boolean} 是否竖直
+     */
+    function isRoadVertical(bearing, threshold = 15) {
+        if (bearing === null || bearing === undefined || isNaN(bearing)) {
+            return false;
+        }
+
+        // 归一化到0-360
+        const normalizedBearing = ((bearing % 360) + 360) % 360;
+
+        // 计算与正北（0°）或正南（180°）的最小偏差
+        const deviationFromNorth = Math.min(
+            Math.abs(normalizedBearing - 0),
+            Math.abs(normalizedBearing - 360)
+        );
+        const deviationFromSouth = Math.abs(normalizedBearing - 180);
+        const minDeviation = Math.min(deviationFromNorth, deviationFromSouth);
+
+        return minDeviation <= threshold;
+    }
+
+    /**
+     * 检查并校正地图旋转，确保道路竖直显示
+     * @param {Array} position - 当前位置 [lng, lat]
+     * @param {number} roadBearing - 当前路网方向（度）
+     */
+    function checkAndCorrectMapRotation(position, roadBearing) {
+        // 检查道路是否竖直
+        const isVertical = isRoadVertical(roadBearing, 15);
+
+        if (!isVertical) {
+            // 道路不竖直，检查是否需要校正
+            const now = Date.now();
+            const timeSinceLastCorrection = (now - lastCorrectionTime) / 1000; // 秒
+
+            // 获取当前地图旋转角度
+            const map = NavRenderer.getMap();
+            const currentMapRotation = map && typeof map.getRotation === 'function'
+                ? (map.getRotation() || 0)
+                : 0;
+
+            // 计算期望的地图旋转角度（车头朝上）
+            const expectedRotation = -roadBearing * Math.PI / 180;
+
+            // 计算实际偏差（转换为度）
+            const rotationDiff = Math.abs((currentMapRotation * 180 / Math.PI) - (-roadBearing));
+            const normalizedDiff = Math.min(rotationDiff, 360 - rotationDiff);
+
+            // 判断是否需要校正
+            // 条件1：首次校正（mapRotationCorrected = false）
+            // 条件2：大偏差兜底（偏差>30度 且 距上次校正>5秒）
+            const needCorrection = !mapRotationCorrected ||
+                                  (normalizedDiff > 30 && timeSinceLastCorrection > 5);
+
+            if (needCorrection) {
+                console.log(`[地图旋转校正] 道路不竖直，执行校正：roadBearing=${roadBearing.toFixed(1)}°, 当前偏差=${normalizedDiff.toFixed(1)}°`);
+
+                // 执行校正：旋转地图让道路竖直（车头朝上）
+                NavRenderer.setHeadingUpMode(position, roadBearing, true);
+
+                // 更新状态
+                mapRotationCorrected = true;
+                lastCorrectionTime = now;
+                currentMapRotation = roadBearing; // 更新记录的旋转角度
+            }
+        } else {
+            // 道路已竖直，重置校正标记（准备下次检测）
+            if (mapRotationCorrected) {
+                console.log('[地图旋转校正] 道路已竖直，重置校正标记');
+                mapRotationCorrected = false;
+            }
+        }
     }
 
     /**
@@ -2040,10 +2122,9 @@ const NavCore = (function() {
 
                // 计算路网方向
                 const roadBearing = calculateCurrentBearing(currentSnappedIndex);
-                // 获取当前地图旋转角度，并调整车辆方向以保持与路网一致
-                const map = NavRenderer.getMap();
-                const mapRotation = map && typeof map.getRotation === 'function' ? (map.getRotation() || 0) : 0;
-                displayHeading = roadBearing - mapRotation; // 调整方向以抵消地图旋转
+                // 图标直接使用路网方向，指向未走的绿色路线
+                // 高德地图的 setAngle 是相对于地图的角度，会随地图旋转自动调整
+                displayHeading = roadBearing;
 
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
@@ -2055,6 +2136,10 @@ const NavCore = (function() {
                     // 【优化】直行时只移动中心，不旋转地图
                     NavRenderer.setCenterOnly(displayPosition, true);
                 }
+
+                // 【新增】地图旋转校验机制：确保道路竖直显示
+                // 在原有转向点旋转机制的基础上，添加一层保险校验
+                checkAndCorrectMapRotation(displayPosition, roadBearing);
             } else {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
                 console.log('[点集吸附] 超出8米范围，进入偏离状态');

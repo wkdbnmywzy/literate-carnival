@@ -473,21 +473,21 @@ const NavGuidance = (function() {
         if (type === 'left') {
             if (d <= 5) return '请左转';
             if (d <= 10) return '请左转';
-            if (d <= 20) return '前方20米左右左转';
+            if (d <= 20) return '前方准备左转';
             return '继续前进，准备左转';
         }
 
         if (type === 'right') {
             if (d <= 5) return '请右转';
             if (d <= 10) return '请右转';
-            if (d <= 20) return '前方20米左右右转';
+            if (d <= 20) return '前方准备右转';
             return '继续前进，准备右转';
         }
 
         if (type === 'uturn') {
             if (d <= 5) return '请掉头';
             if (d <= 10) return '请掉头';
-            if (d <= 20) return '前方20米左右掉头';
+            if (d <= 20) return '前方准备掉头';
             return '继续前进，准备掉头';
         }
 
