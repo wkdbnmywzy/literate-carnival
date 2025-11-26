@@ -2038,9 +2038,12 @@ const NavCore = (function() {
                 // 更新已走路线（灰色）
                 NavRenderer.updatePassedRoute(currentSnappedIndex, displayPosition);
 
-                // 计算路网方向
+               // 计算路网方向
                 const roadBearing = calculateCurrentBearing(currentSnappedIndex);
-                displayHeading = roadBearing; // 使用路网方向
+                // 获取当前地图旋转角度，并调整车辆方向以保持与路网一致
+                const map = NavRenderer.getMap();
+                const mapRotation = map && typeof map.getRotation === 'function' ? (map.getRotation() || 0) : 0;
+                displayHeading = roadBearing - mapRotation; // 调整方向以抵消地图旋转
 
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
