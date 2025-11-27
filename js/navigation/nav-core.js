@@ -847,7 +847,78 @@ const NavCore = (function() {
             }
         }
 
-        return turningPoints;
+        // 过滤掉"抵消转向"（S型小弯）
+        return filterCancelingTurns(turningPoints, pointSet);
+    }
+
+    /**
+     * 过滤掉相互抵消的转向点（S型小弯）
+     * @param {Array} turningPoints - 转向点数组
+     * @param {Array} pointSet - 点集
+     * @returns {Array} 过滤后的转向点数组
+     */
+    function filterCancelingTurns(turningPoints, pointSet) {
+        if (!turningPoints || turningPoints.length < 2) {
+            return turningPoints;
+        }
+
+        const filtered = [];
+        let i = 0;
+
+        while (i < turningPoints.length) {
+            const current = turningPoints[i];
+
+            // 检查是否有下一个转向点
+            if (i < turningPoints.length - 1) {
+                const next = turningPoints[i + 1];
+
+                // 计算两个转向点之间的距离
+                const distance = haversineDistance(
+                    current.position[1], current.position[0],
+                    next.position[1], next.position[0]
+                );
+
+                // 判断是否为抵消转向（S型小弯）
+                const isCanceling =
+                    distance <= 2 &&  // 距离 ≤ 2米
+                    ((current.turnAngle > 0 && next.turnAngle < 0) ||  // 转向相反（左右或右左）
+                     (current.turnAngle < 0 && next.turnAngle > 0)) &&
+                    Math.abs(Math.abs(current.turnAngle) - Math.abs(next.turnAngle)) <= 10;  // 角度接近抵消（误差≤10度）
+
+                if (isCanceling) {
+                    // 再次确认：检查转向前后的总体方向变化
+                    // 如果是真正的S弯，前后方向应该基本一致
+                    if (current.pointIndex >= 1 && next.pointIndex < pointSet.length - 1) {
+                        const beforePos = pointSet[current.pointIndex - 1].position;
+                        const afterPos = pointSet[next.pointIndex + 1].position;
+
+                        const bearingBefore = calculateBearing(beforePos, current.position);
+                        const bearingAfter = calculateBearing(next.position, afterPos);
+
+                        let directionChange = bearingAfter - bearingBefore;
+                        if (directionChange > 180) directionChange -= 360;
+                        if (directionChange < -180) directionChange += 360;
+
+                        // 如果前后方向变化 ≤ 15度，确认是S弯，跳过这两个转向点
+                        if (Math.abs(directionChange) <= 15) {
+                            console.log(`[转向点过滤] 跳过S型小弯：点${current.pointIndex}(${current.turnAngle.toFixed(1)}°)和点${next.pointIndex}(${next.turnAngle.toFixed(1)}°)，距离${distance.toFixed(2)}米`);
+                            i += 2;  // 跳过这两个点
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // 保留当前转向点
+            filtered.push(current);
+            i++;
+        }
+
+        if (filtered.length < turningPoints.length) {
+            console.log(`[转向点过滤] 原始${turningPoints.length}个转向点 → 过滤后${filtered.length}个转向点`);
+        }
+
+        return filtered;
     }
 
     /**
@@ -1876,51 +1947,68 @@ const NavCore = (function() {
     /**
      * 检查并校正地图旋转，确保道路竖直显示
      * @param {Array} position - 当前位置 [lng, lat]
-     * @param {number} roadBearing - 当前路网方向（度）
+     * @param {number} currentIndex - 当前吸附点索引
      */
-    function checkAndCorrectMapRotation(position, roadBearing) {
-        // 检查道路是否竖直
-        const isVertical = isRoadVertical(roadBearing, 15);
+    function checkAndCorrectMapRotation(position, currentIndex) {
+        const pointSet = window.currentSegmentPointSet;
+        const turningPoints = window.currentSegmentTurningPoints;
+
+        if (!pointSet || currentIndex < 0 || currentIndex >= pointSet.length) {
+            return;
+        }
+
+        // 找到下一个转向点
+        let nextTurnPointIndex = pointSet.length - 1; // 默认段末
+        if (turningPoints && turningPoints.length > 0) {
+            for (let i = 0; i < turningPoints.length; i++) {
+                if (turningPoints[i].pointIndex > currentIndex) {
+                    nextTurnPointIndex = turningPoints[i].pointIndex;
+                    break;
+                }
+            }
+        }
+
+        // 计算从当前位置到下一个转向点的方向
+        const currentPos = pointSet[currentIndex].position;
+        const nextTurnPos = pointSet[nextTurnPointIndex].position;
+        const sectionBearing = calculateBearing(currentPos, nextTurnPos);
+
+        // 检查这个方向是否竖直（南北走向）
+        const isVertical = isRoadVertical(sectionBearing, 15);
 
         if (!isVertical) {
-            // 道路不竖直，检查是否需要校正
-            const now = Date.now();
-            const timeSinceLastCorrection = (now - lastCorrectionTime) / 1000; // 秒
-
-            // 获取当前地图旋转角度
+            // 道路不竖直，需要校正
             const map = NavRenderer.getMap();
             const currentMapRotation = map && typeof map.getRotation === 'function'
                 ? (map.getRotation() || 0)
                 : 0;
 
             // 计算期望的地图旋转角度（车头朝上）
-            const expectedRotation = -roadBearing * Math.PI / 180;
+            const expectedRotation = -sectionBearing * Math.PI / 180;
 
             // 计算实际偏差（转换为度）
-            const rotationDiff = Math.abs((currentMapRotation * 180 / Math.PI) - (-roadBearing));
+            const rotationDiff = Math.abs((currentMapRotation * 180 / Math.PI) - (-sectionBearing));
             const normalizedDiff = Math.min(rotationDiff, 360 - rotationDiff);
 
-            // 判断是否需要校正
+            // 判断是否需要校正（取消5秒限制）
             // 条件1：首次校正（mapRotationCorrected = false）
-            // 条件2：大偏差兜底（偏差>30度 且 距上次校正>5秒）
-            const needCorrection = !mapRotationCorrected ||
-                                  (normalizedDiff > 30 && timeSinceLastCorrection > 5);
+            // 条件2：偏差>15度
+            const needCorrection = !mapRotationCorrected || (normalizedDiff > 15);
 
             if (needCorrection) {
-                console.log(`[地图旋转校正] 道路不竖直，执行校正：roadBearing=${roadBearing.toFixed(1)}°, 当前偏差=${normalizedDiff.toFixed(1)}°`);
+                console.log(`[地图旋转校正] 当前位置到转向点不竖直，执行校正：sectionBearing=${sectionBearing.toFixed(1)}°, 当前偏差=${normalizedDiff.toFixed(1)}°`);
 
                 // 执行校正：旋转地图让道路竖直（车头朝上）
-                NavRenderer.setHeadingUpMode(position, roadBearing, true);
+                NavRenderer.setHeadingUpMode(position, sectionBearing, true);
 
                 // 更新状态
                 mapRotationCorrected = true;
-                lastCorrectionTime = now;
-                currentMapRotation = roadBearing; // 更新记录的旋转角度
+                currentMapRotation = sectionBearing; // 更新记录的旋转角度
             }
         } else {
             // 道路已竖直，重置校正标记（准备下次检测）
             if (mapRotationCorrected) {
-                console.log('[地图旋转校正] 道路已竖直，重置校正标记');
+                console.log('[地图旋转校正] 当前位置到转向点已竖直，重置校正标记');
                 mapRotationCorrected = false;
             }
         }
@@ -2065,6 +2153,10 @@ const NavCore = (function() {
                             console.log('[NavCore] 跨节接入，已重置转向点提示状态');
                         }
 
+                        // 重置地图旋转校正标记，确保重新接入后立即检查并校正
+                        mapRotationCorrected = false;
+                        console.log('[NavCore] 重新接入路网，已重置地图旋转校正标记');
+
                         // 播报"已回到规划路线"
                         NavTTS.speak('已回到规划路线', { force: false });
                     }
@@ -2120,9 +2212,27 @@ const NavCore = (function() {
                 // 更新已走路线（灰色）
                 NavRenderer.updatePassedRoute(currentSnappedIndex, displayPosition);
 
-               // 计算路网方向
-                const roadBearing = calculateCurrentBearing(currentSnappedIndex);
-                // 图标直接使用路网方向，指向未走的绿色路线
+               // 计算路网方向：从当前吸附位置到下一个转向点的方向
+                const pointSet = window.currentSegmentPointSet;
+                const turningPoints = window.currentSegmentTurningPoints;
+
+                // 找到下一个转向点
+                let nextTurnPointIndex = pointSet.length - 1; // 默认段末
+                if (turningPoints && turningPoints.length > 0) {
+                    for (let i = 0; i < turningPoints.length; i++) {
+                        if (turningPoints[i].pointIndex > currentSnappedIndex) {
+                            nextTurnPointIndex = turningPoints[i].pointIndex;
+                            break;
+                        }
+                    }
+                }
+
+                // 计算从当前吸附位置到下一个转向点的方向
+                const currentPos = pointSet[currentSnappedIndex].position;
+                const nextTurnPos = pointSet[nextTurnPointIndex].position;
+                const roadBearing = calculateBearing(currentPos, nextTurnPos);
+
+                // 图标使用这个方向，指向下一个转向点
                 // 高德地图的 setAngle 是相对于地图的角度，会随地图旋转自动调整
                 displayHeading = roadBearing;
 
@@ -2139,7 +2249,7 @@ const NavCore = (function() {
 
                 // 【新增】地图旋转校验机制：确保道路竖直显示
                 // 在原有转向点旋转机制的基础上，添加一层保险校验
-                checkAndCorrectMapRotation(displayPosition, roadBearing);
+                checkAndCorrectMapRotation(displayPosition, currentSnappedIndex);
             } else {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
                 console.log('[点集吸附] 超出8米范围，进入偏离状态');

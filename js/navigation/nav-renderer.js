@@ -433,15 +433,16 @@ const NavRenderer = (function() {
                 ? 'images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png'  // 导航中：车辆图标
                 : 'images/工地数字导航小程序切图/司机/2X/地图icon/我的位置.png';  // 未开始：我的位置图标
 
-            // 图标尺寸：到达起点后车辆图标 39x75，未开始 42x50
+            // 图标尺寸：缩小到 0.7 倍
+            // 原始尺寸：到达起点后车辆图标 39x75，未开始 42x50
             const iconSize = hasStarted
-                ? new AMap.Size(39, 75)
-                : new AMap.Size(42, 50);
+                ? new AMap.Size(39 * 0.7, 75 * 0.7)  // 27.3 x 52.5
+                : new AMap.Size(42 * 0.7, 50 * 0.7); // 29.4 x 35
 
-            // 偏移：使用宽高一半使旋转中心居中（15.5≈16, 31）
+            // 偏移：使用宽高一半使旋转中心居中
             const iconOffset = hasStarted
-                ? new AMap.Pixel(-16, -31)
-                : new AMap.Pixel(-20, -20);
+                ? new AMap.Pixel(-39 * 0.7 / 2, -75 * 0.7 / 2)  // -13.65, -26.25
+                : new AMap.Pixel(-42 * 0.7 / 2, -50 * 0.7 / 2); // -14.7, -17.5
 
             if (!userMarker) {
                 // 创建用户位置标记
