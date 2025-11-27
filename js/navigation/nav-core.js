@@ -1370,8 +1370,12 @@ const NavCore = (function() {
                 sectionStart = 0;
                 sectionEnd = pointSet.length - 1;
             }
+        } else if (isDeviated) {
+            // 偏离状态：搜索整个当前段，允许往回吸附（但会在调用处判断）
+            sectionStart = 0;
+            sectionEnd = pointSet.length - 1;
+            console.log(`[点集吸附] 偏离状态，搜索整个段: 0 - ${sectionEnd}`);
         }
-        // 偏离状态：sectionStart=0, sectionEnd=pointSet.length-1，搜索整个当前段
 
         // 在指定范围内查找最近点
         let nearestIndex = -1;
@@ -2139,19 +2143,22 @@ const NavCore = (function() {
 
                     if (deviationInfo) {
                         console.log('[NavCore] 偏离后重新接入路网:',
-                            `起点索引=${currentSnappedIndex}`,
+                            `偏离前索引=${currentSnappedIndex}`,
                             `接入索引=${snapped.index}`,
                             crossedSection ? '(跨节接入)' : '(同节接入)',
                             isSameSegment ? '(同一路段)' : '(不同路段)');
 
-                        // 如果跨节接入，需要重置转向点提示状态
-                        if (crossedSection && snapped.index !== currentSnappedIndex) {
-                            // 重置转向点提示状态，避免错过当前节的转向提示
-                            lastTurningPointIndex = -1;
-                            hasPrompted1_4 = false;
-                            hasPromptedBefore = false;
-                            console.log('[NavCore] 跨节接入，已重置转向点提示状态');
+                        // 【关键修复】确保接入点不能比偏离前的点还靠前
+                        // 如果接入点索引小于当前索引，说明吸附逻辑有误，强制使用接入点
+                        if (snapped.index < currentSnappedIndex) {
+                            console.warn(`[NavCore] 警告：接入点索引(${snapped.index})小于偏离前索引(${currentSnappedIndex})，这不应该发生！`);
                         }
+
+                        // 无论如何，都要重置转向点提示状态（因为可能跨过了转向点）
+                        lastTurningPointIndex = -1;
+                        hasPrompted1_4 = false;
+                        hasPromptedBefore = false;
+                        console.log('[NavCore] 偏离后重新接入，已重置转向点提示状态');
 
                         // 重置地图旋转校正标记，确保重新接入后立即检查并校正
                         mapRotationCorrected = false;
@@ -2216,12 +2223,14 @@ const NavCore = (function() {
                 const pointSet = window.currentSegmentPointSet;
                 const turningPoints = window.currentSegmentTurningPoints;
 
-                // 找到下一个转向点
+                // 找到下一个转向点（基于当前吸附点，查找绿色路线上的下一个转向点）
                 let nextTurnPointIndex = pointSet.length - 1; // 默认段末
                 if (turningPoints && turningPoints.length > 0) {
                     for (let i = 0; i < turningPoints.length; i++) {
+                        // 查找当前吸附点之后的第一个转向点
                         if (turningPoints[i].pointIndex > currentSnappedIndex) {
                             nextTurnPointIndex = turningPoints[i].pointIndex;
+                            console.log(`[下一个转向点] 索引=${nextTurnPointIndex}, 类型=${turningPoints[i].turnType}, 当前吸附点=${currentSnappedIndex}`);
                             break;
                         }
                     }
