@@ -22,6 +22,7 @@ const NavRenderer = (function() {
     let deviationHistory = [];       // 偏移轨迹历史（保存已完成的黄色线段）
     let lastSnappedPosition = null;  // 最后吸附的位置（偏移起点）
     let isCurrentlyDeviated = false; // 当前是否处于偏移状态
+    let deviationGpsTrack = [];      // 偏离期间的GPS轨迹点数组
     let startMarker = null;          // 起点标记
     let endMarker = null;            // 终点标记
     let waypointMarkers = [];        // 途经点标记
@@ -1076,6 +1077,9 @@ const NavRenderer = (function() {
 
             lastSnappedPosition = lastSnappedPos;
             isCurrentlyDeviated = true;
+            
+            // 初始化GPS轨迹数组，起点是最后吸附位置
+            deviationGpsTrack = [lastSnappedPos];
 
             // 清除之前的偏离线（如果有）
             if (deviationPolyline) {
@@ -1088,7 +1092,7 @@ const NavRenderer = (function() {
     }
 
     /**
-     * 更新偏离轨迹（实时绘制黄色线）
+     * 更新偏离轨迹（实时绘制黄色线，记录真实GPS轨迹）
      * @param {Array} currentGpsPos - 当前GPS位置 [lng, lat]
      */
     function updateDeviationLine(currentGpsPos) {
@@ -1097,14 +1101,29 @@ const NavRenderer = (function() {
                 return;
             }
 
+            // 添加当前GPS点到轨迹数组
+            if (deviationGpsTrack.length === 0) {
+                // 如果轨迹数组为空（异常情况），重新初始化
+                deviationGpsTrack = [lastSnappedPosition, currentGpsPos];
+            } else {
+                // 检查是否与上一个点重复（避免GPS漂移导致重复点）
+                const lastPoint = deviationGpsTrack[deviationGpsTrack.length - 1];
+                const distance = calculateLineDistance(lastPoint, currentGpsPos);
+                
+                // 只有移动距离 > 0.5米才添加新点（过滤GPS抖动）
+                if (distance > 0.5) {
+                    deviationGpsTrack.push(currentGpsPos);
+                }
+            }
+
             // 清除旧的偏离线
             if (deviationPolyline) {
                 map.remove(deviationPolyline);
             }
 
-            // 绘制从最后吸附点到当前GPS位置的黄色线
+            // 绘制完整的GPS轨迹（从最后吸附点开始，经过所有GPS点）
             deviationPolyline = new AMap.Polyline({
-                path: [lastSnappedPosition, currentGpsPos],
+                path: deviationGpsTrack,
                 strokeColor: ROUTE_STYLES.deviation.strokeColor,
                 strokeWeight: ROUTE_STYLES.deviation.strokeWeight,
                 strokeOpacity: ROUTE_STYLES.deviation.strokeOpacity,
@@ -1114,8 +1133,7 @@ const NavRenderer = (function() {
                 map: map
             });
 
-            console.log('[NavRenderer] 偏离轨迹已更新，长度:',
-                calculateLineDistance(lastSnappedPosition, currentGpsPos).toFixed(2), '米');
+            console.log('[NavRenderer] 偏离轨迹已更新，轨迹点数:', deviationGpsTrack.length);
         } catch (e) {
             console.error('[NavRenderer] 更新偏离轨迹失败:', e);
         }
@@ -1147,13 +1165,15 @@ const NavRenderer = (function() {
             if (deviationPolyline) {
                 deviationPolyline.hide(); // 隐藏偏离线
                 deviationInfo.preserved = true;
+                deviationInfo.trackPoints = deviationGpsTrack.length; // 记录轨迹点数
 
-                console.log('[NavRenderer] 偏离轨迹已隐藏');
+                console.log('[NavRenderer] 偏离轨迹已隐藏，轨迹点数:', deviationGpsTrack.length);
             }
 
             // 重置偏离状态
             isCurrentlyDeviated = false;
             lastSnappedPosition = null;
+            deviationGpsTrack = []; // 清空GPS轨迹数组
 
             return deviationInfo;
         } catch (e) {
@@ -1207,6 +1227,7 @@ const NavRenderer = (function() {
 
             isCurrentlyDeviated = false;
             lastSnappedPosition = null;
+            deviationGpsTrack = []; // 清空GPS轨迹数组
 
             console.log('[NavRenderer] 偏离轨迹历史已清除');
         } catch (e) {
