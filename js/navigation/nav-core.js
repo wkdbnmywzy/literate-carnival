@@ -2328,15 +2328,11 @@ const NavCore = (function() {
                     ? (map.getRotation() || 0) 
                     : 0;
 
-                // 计算图标角度
-                // 高德地图的 setAngle 是相对于地图的，会随地图旋转自动调整
-                // 因此需要减去地图旋转角度，使图标指向正确的道路方向
-                displayHeading = roadBearing - mapRotation * 180 / Math.PI;
+                // 修改车辆图标旋转角度计算，让图标始终指北，不考虑地图旋转
+                // 这样可以避免图标与路网方向有偏差
+                displayHeading = 0; // 始终指北
 
-                // 确保角度在0-360范围内
-                displayHeading = ((displayHeading % 360) + 360) % 360;
-
-                console.log(`[车辆角度] 道路方向=${roadBearing.toFixed(1)}°, 地图旋转=${(mapRotation * 180 / Math.PI).toFixed(1)}°, 图标角度=${displayHeading.toFixed(1)}°`);
+                console.log(`[车辆角度] 道路方向=${roadBearing.toFixed(1)}°, 地图旋转=${(mapRotation * 180 / Math.PI).toFixed(1)}°, 图标角度=${displayHeading.toFixed(1)}°(固定指北)`);
 
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
