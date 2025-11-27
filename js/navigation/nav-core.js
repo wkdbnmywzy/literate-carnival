@@ -872,15 +872,17 @@ const NavCore = (function() {
             if (i < turningPoints.length - 1) {
                 const next = turningPoints[i + 1];
 
-                // 计算两个转向点之间的距离
-                const distance = haversineDistance(
-                    current.position[1], current.position[0],
-                    next.position[1], next.position[0]
-                );
+                // 计算两个转向点之间的路径距离（沿着点集走）
+                let pathDistance = 0;
+                for (let j = current.pointIndex; j < next.pointIndex && j < pointSet.length - 1; j++) {
+                    const p1 = pointSet[j].position;
+                    const p2 = pointSet[j + 1].position;
+                    pathDistance += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
+                }
 
                 // 判断是否为抵消转向（S型小弯）
                 const isCanceling =
-                    distance <= 2 &&  // 距离 ≤ 2米
+                    pathDistance <= 2 &&  // 路径距离 ≤ 2米
                     ((current.turnAngle > 0 && next.turnAngle < 0) ||  // 转向相反（左右或右左）
                      (current.turnAngle < 0 && next.turnAngle > 0)) &&
                     Math.abs(Math.abs(current.turnAngle) - Math.abs(next.turnAngle)) <= 10;  // 角度接近抵消（误差≤10度）
@@ -888,12 +890,17 @@ const NavCore = (function() {
                 if (isCanceling) {
                     // 再次确认：检查转向前后的总体方向变化
                     // 如果是真正的S弯，前后方向应该基本一致
-                    if (current.pointIndex >= 1 && next.pointIndex < pointSet.length - 1) {
-                        const beforePos = pointSet[current.pointIndex - 1].position;
-                        const afterPos = pointSet[next.pointIndex + 1].position;
+                    // 扩大检查范围：向前向后各看2-3个点
+                    const beforeIdx = Math.max(0, current.pointIndex - 3);
+                    const afterIdx = Math.min(pointSet.length - 1, next.pointIndex + 3);
 
-                        const bearingBefore = calculateBearing(beforePos, current.position);
-                        const bearingAfter = calculateBearing(next.position, afterPos);
+                    if (beforeIdx < current.pointIndex && afterIdx > next.pointIndex) {
+                        const beforePos = pointSet[beforeIdx].position;
+                        const afterPos = pointSet[afterIdx].position;
+
+                        // 计算整体方向变化（跨越S弯前后的方向）
+                        const bearingBefore = calculateBearing(beforePos, pointSet[current.pointIndex].position);
+                        const bearingAfter = calculateBearing(pointSet[next.pointIndex].position, afterPos);
 
                         let directionChange = bearingAfter - bearingBefore;
                         if (directionChange > 180) directionChange -= 360;
@@ -901,7 +908,7 @@ const NavCore = (function() {
 
                         // 如果前后方向变化 ≤ 15度，确认是S弯，跳过这两个转向点
                         if (Math.abs(directionChange) <= 15) {
-                            console.log(`[转向点过滤] 跳过S型小弯：点${current.pointIndex}(${current.turnAngle.toFixed(1)}°)和点${next.pointIndex}(${next.turnAngle.toFixed(1)}°)，距离${distance.toFixed(2)}米`);
+                            console.log(`[转向点过滤] 跳过S型小弯：点${current.pointIndex}(${current.turnAngle.toFixed(1)}°)和点${next.pointIndex}(${next.turnAngle.toFixed(1)}°)，路径距离${pathDistance.toFixed(2)}米，方向变化${directionChange.toFixed(1)}°`);
                             i += 2;  // 跳过这两个点
                             continue;
                         }
@@ -1537,8 +1544,11 @@ const NavCore = (function() {
 
             // 掉头特殊处理：到达掉头点后播报
             if (nextTurnPoint.turnType === 'uturn') {
-                // 1. 到达掉头点：直接播报掉头
-                if (currentIndex === nextTurnPoint.pointIndex) {
+                // 1. 到达掉头点附近（当前点 或 距离≤4米）：直接播报掉头
+                const isNearUturnPoint = (currentIndex === nextTurnPoint.pointIndex) ||
+                                        (currentIndex >= nextTurnPoint.pointIndex - 1 && distanceToTurn <= 4);
+
+                if (isNearUturnPoint) {
                     if (!hasPromptedBefore) {
                         const guidance = {
                             type: nextTurnPoint.turnType,
@@ -1550,6 +1560,7 @@ const NavCore = (function() {
                         NavTTS.speak(turnAction, { force: true }); // 强制播报
                         hasPromptedBefore = true;
                         lastGuidanceTime = now;
+                        console.log(`[掉头播报] ${turnAction}, 当前索引=${currentIndex}, 掉头点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                     }
                     return;
                 }
@@ -1571,9 +1582,12 @@ const NavCore = (function() {
                     return;
                 }
             } else {
-                // 左转/右转处理：原触发条件（前一个点）
-                // 1. 到达转向点前一个点：直接播报转向
-                if (currentIndex === nextTurnPoint.pointIndex - 1) {
+                // 左转/右转处理：原触发条件（前一个点）+ 范围触发
+                // 1. 到达转向点附近（前一个点 或 距离≤4米）：直接播报转向
+                const isNearTurnPoint = (currentIndex === nextTurnPoint.pointIndex - 1) ||
+                                       (currentIndex >= nextTurnPoint.pointIndex - 2 && distanceToTurn <= 4);
+
+                if (isNearTurnPoint) {
                     if (!hasPromptedBefore) {
                         const guidance = {
                             type: nextTurnPoint.turnType,
@@ -1585,6 +1599,7 @@ const NavCore = (function() {
                         NavTTS.speak(turnAction, { force: true }); // 强制播报
                         hasPromptedBefore = true;
                         lastGuidanceTime = now;
+                        console.log(`[转向播报] ${turnAction}, 当前索引=${currentIndex}, 转向点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                     }
                     return;
                 }
