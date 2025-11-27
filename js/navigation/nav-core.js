@@ -2018,6 +2018,84 @@ const NavCore = (function() {
         }
     }
 
+    // 二次校验相关状态
+    let lastSecondaryCheckTime = 0;      // 上次二次校验时间
+    let secondaryCheckCooldown = 10000;  // 常规冷却时间10秒
+    let forceSecondaryCheck = false;     // 是否强制立即执行二次校验（偏离回归后）
+
+    /**
+     * 二次校验：用不同的计算方式验证道路是否竖直显示
+     * 第一层用"当前点→转向点"，这里用"当前点→前方几个点"的局部方向
+     * @param {Array} position - 当前位置 [lng, lat]
+     * @param {number} currentIndex - 当前吸附点索引
+     */
+    function secondaryVerticalCheck(position, currentIndex) {
+        try {
+            const now = Date.now();
+
+            // 检查是否需要执行校验
+            // 1. 强制校验（偏离回归后立即执行）
+            // 2. 常规校验（10秒一次）
+            if (!forceSecondaryCheck && (now - lastSecondaryCheckTime < secondaryCheckCooldown)) {
+                return;
+            }
+
+            // 更新校验时间（无论是否触发校正，都更新时间）
+            lastSecondaryCheckTime = now;
+
+            // 重置强制校验标志
+            if (forceSecondaryCheck) {
+                console.log('[二次校验] 偏离回归后立即执行校验');
+                forceSecondaryCheck = false;
+            }
+
+            const pointSet = window.currentSegmentPointSet;
+            const map = NavRenderer.getMap();
+
+            if (!pointSet || !map || currentIndex < 0 || currentIndex >= pointSet.length - 1) {
+                return;
+            }
+
+            // 获取当前地图旋转角度（度）
+            const mapRotation = map.getRotation() || 0;
+
+            // 用不同的方式计算道路方向：当前点到前方3-5个点（局部路段方向）
+            const lookAhead = Math.min(5, pointSet.length - 1 - currentIndex);
+            if (lookAhead < 2) return; // 点不够，跳过校验
+
+            const nextIndex = currentIndex + lookAhead;
+            const localBearing = calculateBearing(
+                pointSet[currentIndex].position,
+                pointSet[nextIndex].position
+            );
+
+            // 计算道路在屏幕上的显示角度
+            // 地图旋转后，道路的屏幕角度 = 道路真实方向 - 地图旋转角度
+            let screenAngle = localBearing - mapRotation;
+            screenAngle = ((screenAngle % 360) + 360) % 360;
+
+            // 检查是否接近竖直（0°或180°表示南北走向）
+            const deviationFromNorth = Math.min(
+                Math.abs(screenAngle),
+                Math.abs(screenAngle - 360)
+            );
+            const deviationFromSouth = Math.abs(screenAngle - 180);
+            const deviationFromVertical = Math.min(deviationFromNorth, deviationFromSouth);
+
+            // 如果偏差超过35度，说明道路严重偏离竖直，需要强制校正
+            // 使用35度阈值（比第一层的15度更宽松），避免与第一层冲突
+            if (deviationFromVertical > 35) {
+                console.warn(`[二次校验] 道路未竖直！局部方向=${localBearing.toFixed(1)}°, 地图旋转=${mapRotation.toFixed(1)}°, 屏幕角度=${screenAngle.toFixed(1)}°, 偏差=${deviationFromVertical.toFixed(1)}°`);
+
+                // 强制校正：旋转地图让道路竖直
+                NavRenderer.setHeadingUpMode(position, localBearing, true);
+                console.log(`[二次校验] 强制校正地图旋转: ${localBearing.toFixed(1)}°`);
+            }
+        } catch (e) {
+            console.error('[二次校验] 执行失败:', e);
+        }
+    }
+
     /**
      * GPS位置更新回调
      * @param {Array} position - [lng, lat]
@@ -2164,6 +2242,9 @@ const NavCore = (function() {
                         mapRotationCorrected = false;
                         console.log('[NavCore] 重新接入路网，已重置地图旋转校正标记');
 
+                        // 设置强制二次校验标志，偏离回归后立即执行
+                        forceSecondaryCheck = true;
+
                         // 播报"已回到规划路线"
                         NavTTS.speak('已回到规划路线', { force: false });
                     }
@@ -2259,6 +2340,10 @@ const NavCore = (function() {
                 // 【新增】地图旋转校验机制：确保道路竖直显示
                 // 在原有转向点旋转机制的基础上，添加一层保险校验
                 checkAndCorrectMapRotation(displayPosition, currentSnappedIndex);
+
+                // 【二次校验】用不同的计算方式验证道路是否竖直
+                // 第一层用"当前点→转向点"，二次校验用"当前点→前方几个点"
+                secondaryVerticalCheck(displayPosition, currentSnappedIndex);
             } else {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
                 console.log('[点集吸附] 超出8米范围，进入偏离状态');
