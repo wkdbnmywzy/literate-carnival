@@ -2322,9 +2322,21 @@ const NavCore = (function() {
                 const nextTurnPos = pointSet[nextTurnPointIndex].position;
                 const roadBearing = calculateBearing(currentPos, nextTurnPos);
 
-                // 图标使用这个方向，指向下一个转向点
-                // 高德地图的 setAngle 是相对于地图的角度，会随地图旋转自动调整
-                displayHeading = roadBearing;
+                // 获取地图当前旋转角度
+                const map = NavRenderer.getMap();
+                const mapRotation = map && typeof map.getRotation === 'function' 
+                    ? (map.getRotation() || 0) 
+                    : 0;
+
+                // 计算图标角度
+                // 高德地图的 setAngle 是相对于地图的，会随地图旋转自动调整
+                // 因此需要减去地图旋转角度，使图标指向正确的道路方向
+                displayHeading = roadBearing - mapRotation * 180 / Math.PI;
+
+                // 确保角度在0-360范围内
+                displayHeading = ((displayHeading % 360) + 360) % 360;
+
+                console.log(`[车辆角度] 道路方向=${roadBearing.toFixed(1)}°, 地图旋转=${(mapRotation * 180 / Math.PI).toFixed(1)}°, 图标角度=${displayHeading.toFixed(1)}°`);
 
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
