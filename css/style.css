@@ -298,9 +298,8 @@ body {
     z-index: 110;
     background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
     border-radius: 20px 20px 0 0;
-    padding: 4vw; /* 使用视口宽度的4%，自适应屏幕 */
-    padding-left: 5vw;
-    padding-right: 5vw;
+    padding: 20px;
+    padding-right: 20px; /* 右侧内边距 */
     box-shadow: none;
 }
 
@@ -467,7 +466,6 @@ body {
     align-items: center;
     gap: 12px;
     position: relative;
-    margin-right: 15vw; /* 使用视口宽度的15%为右侧途径点按钮预留空间 */
 }
 
 .location-inputs-wrapper {
@@ -478,6 +476,7 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     position: relative;
     padding-right: 50px; /* 预留切换按钮空间 */
+    margin-right: 68px; /* 为途径点按钮预留空间：22px(左侧间距) + 46px(按钮宽度) */
 }
 
 .location-inputs {
@@ -613,7 +612,7 @@ body {
 
 .add-waypoint {
     position: absolute;
-    right: -14vw; /* 使用视口宽度的负值，固定在卡片外部右侧 */
+    right: 2px; /* 22px - 20px(bottom-card padding) = 2px，实际距屏幕边缘 22px */
     top: 50%;
     transform: translateY(-50%);
     display: flex;
@@ -626,12 +625,8 @@ body {
 }
 
 .add-btn {
-    width: 10vw; /* 使用视口宽度，自适应 */
-    height: 10vw;
-    max-width: 48px; /* 限制最大尺寸 */
-    max-height: 48px;
-    min-width: 36px; /* 限制最小尺寸 */
-    min-height: 36px;
+    width: 46px; /* 固定宽度 */
+    height: 46px; /* 固定高度 */
     border-radius: 50%;
     background: transparent;
     border: none;
@@ -662,11 +657,9 @@ body {
 }
 
 .waypoint-label {
-    font-size: 3vw; /* 使用视口宽度 */
-    max-font-size: 14px;
-    min-font-size: 10px;
+    font-size: 12px; /* 固定字号 */
     color: #143662;
-    white-space: nowrap; /* 防止换行 */
+    white-space: nowrap;
 }
 
 /* 途经点容器 */
