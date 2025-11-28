@@ -296,9 +296,11 @@ body {
     left: 0;
     right: 0;
     z-index: 110;
-    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%); /* 改为从白到蓝的渐变背景 */
+    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
     border-radius: 20px 20px 0 0;
-    padding: 20px 70px 20px 20px;
+    padding: 4vw; /* 使用视口宽度的4%，自适应屏幕 */
+    padding-left: 5vw;
+    padding-right: 5vw;
     box-shadow: none;
 }
 
@@ -465,6 +467,7 @@ body {
     align-items: center;
     gap: 12px;
     position: relative;
+    margin-right: 15vw; /* 使用视口宽度的15%为右侧途径点按钮预留空间 */
 }
 
 .location-inputs-wrapper {
@@ -473,8 +476,8 @@ body {
     border-radius: 12px;
     background: #fff;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    position: relative; /* 让切换按钮以整个盒子为参照居中定位 */
-    padding-right: 56px; /* 预留按钮空间，避免遮挡输入内容 */
+    position: relative;
+    padding-right: 50px; /* 预留切换按钮空间 */
 }
 
 .location-inputs {
@@ -610,7 +613,7 @@ body {
 
 .add-waypoint {
     position: absolute;
-    right: -60px;
+    right: -14vw; /* 使用视口宽度的负值，固定在卡片外部右侧 */
     top: 50%;
     transform: translateY(-50%);
     display: flex;
@@ -619,11 +622,16 @@ body {
     justify-content: center;
     gap: 4px;
     flex-shrink: 0;
+    z-index: 1;
 }
 
 .add-btn {
-    width: 40px;
-    height: 40px;
+    width: 10vw; /* 使用视口宽度，自适应 */
+    height: 10vw;
+    max-width: 48px; /* 限制最大尺寸 */
+    max-height: 48px;
+    min-width: 36px; /* 限制最小尺寸 */
+    min-height: 36px;
     border-radius: 50%;
     background: transparent;
     border: none;
@@ -648,14 +656,17 @@ body {
 }
 
 .add-btn img {
-    width: 32px;
-    height: 32px;
+    width: 80%; /* 相对于按钮大小 */
+    height: 80%;
     object-fit: contain;
 }
 
 .waypoint-label {
-    font-size: 12px;
-    color: #143662 ;
+    font-size: 3vw; /* 使用视口宽度 */
+    max-font-size: 14px;
+    min-font-size: 10px;
+    color: #143662;
+    white-space: nowrap; /* 防止换行 */
 }
 
 /* 途经点容器 */
@@ -1448,127 +1459,30 @@ body {
 }
 
 
-/* 响应式调整 - 适配各种手机机型长宽布局 */
+/* 响应式调整 - 保持一致的视觉效果 */
 /* 针对小高度设备（如横屏手机、小屏手机） */
 @media (max-height: 700px) {
-    .bottom-card {
-        bottom: 60px;
-        padding: 15px;
-        transform: translateY(calc(100% - 200px)); /* 小屏幕下调整默认显示高度 */
-    }
-
-    .route-planning-section {
-        min-height: 160px; /* 小屏幕下减少最小高度 */
-        max-height: 300px;
-    }
-
-    .waypoints-container {
-        max-height: 100px; /* 小屏幕下减少途经点区域高度 */
-    }
-
-    .point-selection-section {
-        min-height: 200px; /* 小屏幕下减少二段最小高度 */
-    }
-
-    .bottom-nav {
-        padding: 8px 0;
+    .map-controls {
+        bottom: 180px;
     }
 }
 
 /* 针对超小高度设备（如横屏模式） */
 @media (max-height: 500px) {
-    .bottom-card {
-        bottom: 40px;
-        padding: 10px;
-        transform: translateY(calc(100% - 150px));
-    }
-
-    .route-planning-section {
-        min-height: 120px;
-        max-height: 200px;
-    }
-
     .search-container {
         top: 10px;
         left: 10px;
         right: 10px;
-        padding: 8px 10px;
     }
 
     .map-controls {
-        bottom: 180px;
+        bottom: 150px;
         right: 15px;
     }
 
     .control-btn {
         width: 40px;
         height: 40px;
-        font-size: 18px;
-    }
-}
-
-/* 针对超小宽度设备 */
-@media (max-width: 320px) {
-    .container {
-        max-width: 100%;
-    }
-
-    .search-container {
-        padding: 8px 10px;
-    }
-
-    .search-box input {
-        font-size: 14px;
-    }
-
-    .bottom-card {
-        padding: 15px 60px 15px 15px;
-    }
-
-    .location-item input {
-        font-size: 14px;
-    }
-
-    .nav-text {
-        font-size: 10px;
-    }
-
-    .nav-icon {
-        font-size: 18px;
-    }
-}
-
-/* 针对大屏手机设备 */
-@media (min-width: 414px) and (min-height: 800px) {
-    .container {
-        max-width: 100%;
-    }
-
-    .search-container {
-        padding: 15px 20px;
-    }
-
-    .search-box input {
-        font-size: 18px;
-    }
-
-    .bottom-card {
-        padding: 25px 80px 25px 25px;
-    }
-
-    .location-item input {
-        font-size: 16px;
-    }
-
-    .map-controls {
-        bottom: 260px;
-        right: 25px;
-    }
-
-    .control-btn {
-        width: 52px;
-        height: 52px;
-        font-size: 22px;
     }
 }
 
