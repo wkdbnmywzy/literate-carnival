@@ -210,8 +210,8 @@ body {
 
 /* 项目选择卡片（与登录卡片等高，互斥显示） */
 .project-card {
-    background: transparent; /* 由容器着色与裁剪 */
-    padding: 30px 20px;
+    background: transparent;
+    padding: 5vw 4vw; /* 使用视口宽度，自适应内边距 */
     z-index: 4;
     min-height: 0;
 }
@@ -220,7 +220,7 @@ body {
 .project-header {
     display: flex;
     align-items: center;
-    margin-bottom: 40px;
+    margin-bottom: 8vw; /* 使用视口宽度，自适应间距 */
     position: relative;
 }
 
@@ -265,12 +265,13 @@ body {
 
 .picker-container {
     display: flex;
-    gap: 20px;
+    gap: 5vw; /* 使用视口宽度，自适应间距 */
     flex: 1;
     margin-bottom: 30px;
     justify-content: center;
     align-items: center;
-    position: relative; /* 为统一遮罩层定位 */
+    position: relative;
+    padding: 0 5vw; /* 左右留白 */
 }
 
 /* 新增：统一的遮罩层 */
@@ -293,20 +294,21 @@ body {
     z-index: 2;
 }
 
-/* 新增：统一的高亮区域，解决中间断口问题 */
+/* 新增：统一的高亮区域，使用渐变线条和渐变背景 */
 .picker-container::after {
     content: '';
     position: absolute;
     top: 50%;
     left: 0;
     right: 0;
-    height: 36px;
+    height: 40px;
     transform: translateY(-50%);
-    border-top: 1px solid #2E89FF;
-    border-bottom: 1px solid #2E89FF;
-    background: rgba(91, 168, 227, 0.05);
+    background: 
+        linear-gradient(to right, rgba(42, 134, 255, 0) 0%, rgba(42, 134, 255, 0.3) 15%, #2A86FF 50%, rgba(42, 134, 255, 0.3) 85%, rgba(42, 134, 255, 0) 100%) top / 100% 1px no-repeat,
+        linear-gradient(to right, rgba(42, 134, 255, 0) 0%, rgba(42, 134, 255, 0.3) 15%, #2A86FF 50%, rgba(42, 134, 255, 0.3) 85%, rgba(42, 134, 255, 0) 100%) bottom / 100% 1px no-repeat,
+        linear-gradient(to right, rgba(42, 134, 255, 0) 0%, rgba(42, 134, 255, 0.02) 20%, rgba(42, 134, 255, 0.05) 50%, rgba(42, 134, 255, 0.02) 80%, rgba(42, 134, 255, 0) 100%);
     pointer-events: none;
-    z-index: 1; /* 确保在遮罩下方，在文字上方 */
+    z-index: 1;
 }
 
 
@@ -315,7 +317,8 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
-    max-width: 45%;
+    max-width: 42%; /* 固定最大宽度比例 */
+    min-width: 35%; /* 固定最小宽度比例 */
 }
 
 .picker-label {
@@ -325,21 +328,29 @@ body {
 /* 轮盘选择器 */
 .wheel-picker {
     position: relative;
-    height: 180px;
-    background: transparent; /* 改为透明，以显示父容器的统一遮罩 */
+    height: 200px; /* 固定高度，确保一致性 */
+    background: transparent;
     border-radius: 8px;
     overflow: hidden;
 }
 
 /* 项目选择项颜色覆盖为 #143662 */
 .project-selection .picker-item {
-    color: #2E89FF; /* 未选中项改为蓝色 */
+    color: #9CC2F5; /* 未选中项浅蓝色 */
+    font-family: "OPPO Sans 4.0", "OPPO Sans", -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 400; /* Regular */
+    font-size: 16px;
+    letter-spacing: 0.5px;
+    line-height: 24px;
 }
 
 .project-selection .picker-item.selected {
-    color: #143662; /* 选中项改回深色 */
-    font-weight: 600;
-    font-size: 18px;
+    color: #143662; /* 选中项深蓝色 */
+    font-family: "OPPO Sans 4.0", "OPPO Sans", -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 600; /* SemiBold */
+    font-size: 16px;
+    letter-spacing: 0.5px; /* 字间距 */
+    line-height: 24px; /* 行高 */
 }
 
 /* 遮罩层 (已由 .picker-container::before 替代) */
@@ -370,31 +381,30 @@ body {
 /* 选择器列 */
 .picker-column {
     position: relative;
-    padding: 72px 0;
+    padding: 80px 0; /* 调整为 (200px - 40px) / 2 = 80px，确保选中项居中 */
     transition: transform 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
     touch-action: none;
     user-select: none;
 }
 
 .picker-item {
-    height: 36px;
+    height: 40px; /* 增加高度 */
     display: flex;
     align-items: center;
     justify-content: center;
-    /* 使用 clamp 实现动态字体大小，避免长文本换行 */
-    font-size: clamp(12px, 4vw, 14px);
-    color: #999;
+    font-size: 14px;
+    color: #BDBDBD; /* 默认灰色 */
     transition: all 0.3s;
     cursor: pointer;
-    padding: 0 4px; /* 减小内边距以容纳更长的文本 */
-    white-space: nowrap; /* 强制不换行 */
-    overflow: hidden; /* 隐藏溢出部分 */
-    text-overflow: ellipsis; /* 对溢出文本显示省略号 */
+    padding: 0 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .picker-item.selected {
-    color: #1a1a1a;
-    font-size: 15px;
+    color: #143662; /* 深蓝色 */
+    font-size: 20px;
     font-weight: 600;
 }
 
@@ -734,32 +744,40 @@ body {
     flex: 1;
 }
 
-/* 响应式调整 */
+/* 响应式调整 - 保持视觉一致性 */
 @media (max-height: 700px) {
     .map-background {
-        height: 300px;
+        height: 200px; /* 小屏幕减少地图高度 */
     }
 
-    .logo-section {
-        padding: 30px 30px;
+    .wheel-picker {
+        height: 160px; /* 小屏幕减少选择器高度 */
     }
 
-    .app-title {
-        font-size: 28px;
-    }
-
-    .login-card {
-        padding: 24px 20px;
+    .picker-column {
+        padding: 60px 0; /* (160px - 40px) / 2 = 60px */
     }
 }
 
-@media (max-width: 380px) {
-    .login-tabs {
-        gap: 30px;
+@media (max-height: 600px) {
+    .map-background {
+        height: 180px;
     }
 
-    .login-card {
-        padding: 24px 16px;
+    .wheel-picker {
+        height: 140px;
+    }
+
+    .picker-column {
+        padding: 50px 0; /* (140px - 40px) / 2 = 50px */
+    }
+}
+
+/* 超小屏幕优化 */
+@media (max-width: 360px) {
+    .picker-container {
+        gap: 3vw;
+        padding: 0 3vw;
     }
 }
 

@@ -508,7 +508,7 @@ function initProjectSelection() {
             this.items = items;
             this.onChange = onChange;
             this.selectedIndex = 0;
-            this.itemHeight = 36;
+            this.itemHeight = 40; // 与 CSS 中的 .picker-item 高度一致
 
             this.isDragging = false;
             this.startY = 0;

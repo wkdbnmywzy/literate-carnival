@@ -122,13 +122,16 @@
     bottom: 100px;
     left: 0;
     right: 0;
-    padding: 0 30px;
+    padding: 0 5%; /* 使用百分比内边距 */
     max-width: 480px;
     margin: 0 auto;
+    display: flex;
+    justify-content: center; /* 确保居中 */
 }
 
 .logout-btn {
-    width: 345px;
+    width: 90%; /* 使用百分比宽度 */
+    max-width: 345px; /* 限制最大宽度 */
     height: 47px;
     background: linear-gradient(90deg, #FFA296 0%, #FF7867 100%);
     border: none;
