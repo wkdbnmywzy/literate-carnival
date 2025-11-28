@@ -466,6 +466,7 @@ body {
     align-items: center;
     gap: 12px;
     position: relative;
+    padding-right: 70px; /* 为途径点按钮预留空间：22px(左侧) + 46px(按钮) + 2px(右侧) */
 }
 
 .location-inputs-wrapper {
@@ -476,7 +477,6 @@ body {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     position: relative;
     padding-right: 50px; /* 预留切换按钮空间 */
-    margin-right: 68px; /* 为途径点按钮预留空间：22px(左侧间距) + 46px(按钮宽度) */
 }
 
 .location-inputs {
@@ -612,7 +612,7 @@ body {
 
 .add-waypoint {
     position: absolute;
-    right: 2px; /* 22px - 20px(bottom-card padding) = 2px，实际距屏幕边缘 22px */
+    right: 2px; /* 22px - 20px(bottom-card padding) = 2px，实际距屏幕 22px */
     top: 50%;
     transform: translateY(-50%);
     display: flex;
