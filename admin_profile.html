@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>管理员 - 我的</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/profile.css">
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 我的页面 -->
+        <div class="profile-page">
+
+            <!-- 管理员信息卡片 -->
+            <div class="driver-card admin-card">
+                <img src="images/工地数字导航小程序切图/管理/2X/我的/背景图片.png" class="card-background" alt="背景">
+                <div class="driver-info">
+                    <img src="images/工地数字导航小程序切图/司机/2X/我的/默认头像.png" class="driver-avatar" alt="头像">
+                    <div class="driver-details">
+                        <h2 class="driver-name">管理员姓名</h2>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 退出登录按钮 -->
+            <div class="logout-section">
+                <button class="logout-btn" id="logout-btn">
+                    <img src="images/工地数字导航小程序切图/司机/2X/我的/退出账号.png" class="logout-icon" alt="退出">
+                    <span>退出账号</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 底部导航 -->
+        <div class="bottom-nav admin-nav">
+            <div class="nav-item" data-page="admin-navigation">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-up.png" 
+                     alt="导航">
+                <div class="nav-text">导航</div>
+            </div>
+            <div class="nav-item" data-page="admin-data">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-up.png" 
+                     alt="工地数据">
+                <div class="nav-text">工地数据</div>
+            </div>
+            <div class="nav-item" data-page="admin-transport">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-up.png" 
+                     alt="运输管理">
+                <div class="nav-text">运输管理</div>
+            </div>
+            <div class="nav-item active" data-page="admin-profile">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-down.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-up.png" 
+                     alt="我的">
+                <div class="nav-text">我的</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/admin_profile.js"></script>
+</body>
+</html>

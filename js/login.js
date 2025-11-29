@@ -23,6 +23,7 @@ let countdownTimer = null;
 // 测试账号数据
 const testAccounts = [
     { username: 'admin', password: '123456', role: 'admin' },
+    { username: 'admin2', password: '123456', role: 'manager' },  // 管理员账号
     { username: 'driver', password: '123456', role: 'driver' },
     { username: 'test', password: '123456', role: 'user' }
 ];
@@ -439,8 +440,18 @@ function initProjectSelection() {
 
                 console.log('项目选择已保存:', projectSelection);
 
-                // 显示车辆信息登记界面
-                showVehicleCard();
+                // 检查是否是管理员
+                const currentUser = JSON.parse(sessionStorage.getItem('currentUser') || '{}');
+                if (currentUser.role === 'manager') {
+                    // 管理员直接跳转到管理员界面
+                    showLoadingScreen();
+                    setTimeout(() => {
+                        window.location.href = 'admin_index.html';
+                    }, 300);
+                } else {
+                    // 普通用户显示车辆信息登记界面
+                    showVehicleCard();
+                }
             } else {
                 alert('请选择省份和项目');
             }

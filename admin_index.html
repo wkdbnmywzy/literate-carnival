@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>管理员 - 导航</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/admin.css">
+    <script type="text/javascript" src="https://webapi.amap.com/maps?v=2.0&key=02e4976e38eb8bc8bcf71a9c485cc2ae"></script>
+</head>
+<body>
+    <div class="container admin-container">
+        <!-- 地图容器 -->
+        <div id="map-container"></div>
+        
+        <!-- 搜索区域（复用司机端样式） -->
+        <div class="search-container">
+            <div class="search-box">
+                <img src="images/工地数字导航小程序切图/司机/2X/导航/搜索.png" class="search-icon-img" alt="搜索">
+                <input type="text" placeholder="输入文字搜索目的地" id="search-input" readonly>
+            </div>
+            <div class="search-results" id="search-results">
+                <!-- 搜索结果将动态填充 -->
+            </div>
+        </div>
+
+        <!-- 顶部筛选栏 -->
+        <div class="admin-filter-bar">
+            <div class="filter-item">
+                <span>任务类型</span>
+                <i class="fas fa-chevron-down"></i>
+            </div>
+            <div class="filter-item">
+                <span>任务状态</span>
+                <i class="fas fa-chevron-down"></i>
+            </div>
+            <div class="filter-item">
+                <span>车辆</span>
+                <i class="fas fa-chevron-down"></i>
+            </div>
+        </div>
+
+        <!-- 右侧控制按钮 -->
+        <div class="admin-map-controls">
+            <button class="admin-control-btn" id="locate-btn" title="定位">
+                <img src="images/工地数字导航小程序切图/司机/2X/导航/定位.png" alt="定位">
+            </button>
+            <button class="admin-control-btn" id="camera-btn" title="监控">
+                <i class="fas fa-video"></i>
+            </button>
+            <button class="admin-control-btn" id="vehicle-toggle-btn" title="切换车辆">
+                <i class="fas fa-truck"></i>
+            </button>
+        </div>
+
+        <!-- 车辆图例（默认隐藏，点击车辆按钮显示） -->
+        <div class="vehicle-legend" id="vehicle-legend" style="display: none;">
+            <div class="legend-item">
+                <img src="images/工地数字导航小程序切图/管理/2X/运输管理/临时车.png" alt="临时车">
+                <span>临时车辆(1)</span>
+            </div>
+            <div class="legend-item">
+                <img src="images/工地数字导航小程序切图/管理/2X/运输管理/固定车.png" alt="固定车">
+                <span>固定车辆(2)</span>
+            </div>
+        </div>
+
+        <!-- 底部卡片 -->
+        <div class="bottom-card admin-bottom-card" id="bottom-card">
+            <!-- 卡片顶部拖动条 -->
+            <div class="card-handle" id="card-handle">
+                <div class="handle-bar"></div>
+            </div>
+            
+            <!-- 路线规划界面 -->
+            <div class="route-planning-section" id="route-planning-section">
+                <div class="route-selector">
+                    <div class="location-inputs-wrapper">
+                        <div class="location-inputs">
+                            <div class="location-item">
+                                <i class="fas fa-circle start-icon"></i>
+                                <input type="text" placeholder="我的位置" id="start-location" readonly>
+                            </div>
+                            <div class="divider-line">
+                                <button class="swap-btn" id="swap-locations-btn" title="切换起点终点">
+                                    <img src="images/工地数字导航小程序切图/司机/2X/导航/切换起点终点.png" alt="切换起点终点">
+                                </button>
+                            </div>
+                            <div class="waypoints-container" id="waypoints-container">
+                                <!-- 途经点将动态添加 -->
+                            </div>
+                            <div class="location-item">
+                                <i class="fas fa-circle end-icon"></i>
+                                <input type="text" placeholder="请输入目的地" id="end-location" readonly>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="add-waypoint">
+                        <div class="add-btn" id="add-waypoint-btn">
+                            <img src="images/工地数字导航小程序切图/司机/2X/导航/添加途径点.png" alt="添加途径点">
+                        </div>
+                        <div class="waypoint-label">途径点</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部导航 -->
+        <div class="bottom-nav admin-nav">
+            <div class="nav-item active" data-page="admin-navigation">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-down.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-up.png" 
+                     alt="导航">
+                <div class="nav-text">导航</div>
+            </div>
+            <div class="nav-item" data-page="admin-data">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-up.png" 
+                     alt="工地数据">
+                <div class="nav-text">工地数据</div>
+            </div>
+            <div class="nav-item" data-page="admin-transport">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-up.png" 
+                     alt="运输管理">
+                <div class="nav-text">运输管理</div>
+            </div>
+            <div class="nav-item" data-page="admin-profile">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-up.png" 
+                     alt="我的">
+                <div class="nav-text">我的</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/admin_index.js"></script>
+</body>
+</html>

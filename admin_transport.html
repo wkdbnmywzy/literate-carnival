@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>管理员 - 运输管理</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/admin.css">
+    <link rel="stylesheet" href="css/admin_transport.css">
+</head>
+<body>
+    <div class="container admin-container">
+        <!-- 页面内容 -->
+        <div class="transport-page">
+            <!-- 顶部标签切换 -->
+            <div class="transport-tabs">
+                <div class="tab-item" data-tab="vehicle">车辆进出管理</div>
+                <div class="tab-item active" data-tab="task">运输任务管理</div>
+            </div>
+
+            <!-- 车辆进出管理 -->
+            <div class="tab-content" id="vehicle-tab" style="display: none;">
+                <!-- 进出统计 -->
+                <div class="stats-card">
+                    <div class="stats-header">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>进出统计</span>
+                        <i class="fas fa-chevron-right"></i>
+                    </div>
+                    <div class="stats-content">
+                        <div class="stats-row">
+                            <div class="stat-item">
+                                <div class="stat-number">28</div>
+                                <div class="stat-label">临时车辆车次</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number">32</div>
+                                <div class="stat-label">固定车辆车次</div>
+                            </div>
+                        </div>
+                        <div class="date-selector">今日 <i class="fas fa-caret-down"></i></div>
+                    </div>
+                </div>
+
+                <!-- 车辆列表 -->
+                <div class="vehicle-list">
+                    <div class="list-header">
+                        <div class="header-col">车辆属性</div>
+                        <div class="header-col">车牌</div>
+                        <div class="header-col">入场时间</div>
+                        <div class="header-col">离场时间</div>
+                    </div>
+                    <div class="list-body">
+                        <div class="list-item">
+                            <div class="col-data vehicle-type temporary">临时</div>
+                            <div class="col-data">鄂A888888</div>
+                            <div class="col-data">10-25 13:59</div>
+                            <div class="col-data">10-25 13:59</div>
+                        </div>
+                        <div class="list-item">
+                            <div class="col-data vehicle-type temporary">临时</div>
+                            <div class="col-data">鄂A888888</div>
+                            <div class="col-data">10-25 13:59</div>
+                            <div class="col-data">10-25 13:59</div>
+                        </div>
+                        <div class="list-item">
+                            <div class="col-data vehicle-type fixed">固定</div>
+                            <div class="col-data">鄂A888888</div>
+                            <div class="col-data">10-25 13:59</div>
+                            <div class="col-data">10-25 13:59</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 运输任务管理 -->
+            <div class="tab-content" id="task-tab">
+                <div class="tab-content-wrapper">
+                    <!-- 今日任务统计 -->
+                    <div class="stats-card">
+                        <div class="stats-header">
+                            <i class="fas fa-tasks"></i>
+                            <span>今日任务</span>
+                            <i class="fas fa-chevron-right"></i>
+                        </div>
+                        <div class="stats-content">
+                            <div class="stats-row">
+                                <div class="stat-item">
+                                    <div class="stat-number">28</div>
+                                    <div class="stat-label">进行中任务</div>
+                                </div>
+                                <div class="stat-item">
+                                    <div class="stat-number">32</div>
+                                    <div class="stat-label">已完成任务</div>
+                                </div>
+                            </div>
+                            <div class="task-types">
+                                <div class="type-item">砂石运输 <span>18</span></div>
+                                <div class="type-item">水泥运输 <span>19</span></div>
+                                <div class="type-item">钢筋运输 <span>23</span></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 任务列表 -->
+                    <div class="task-list">
+                        <div class="list-header">
+                            <div class="header-col">任务类型</div>
+                            <div class="header-col">任务进度</div>
+                            <div class="header-col">任务车辆</div>
+                        </div>
+                        <div class="list-body">
+                            <div class="list-item">
+                                <div class="col-data task-type">水泥运输</div>
+                                <div class="col-data task-status ongoing">进行中</div>
+                                <div class="col-data">鄂A888888</div>
+                            </div>
+                            <div class="list-item">
+                                <div class="col-data task-type">砂石运输</div>
+                                <div class="col-data task-status ongoing">进行中</div>
+                                <div class="col-data">鄂A888888</div>
+                            </div>
+                            <div class="list-item">
+                                <div class="col-data task-type">钢筋运输</div>
+                                <div class="col-data task-status completed">已完成</div>
+                                <div class="col-data">鄂A888888</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 新增按钮 -->
+                    <button class="add-task-btn">
+                        <img src="images/工地数字导航小程序切图/管理/2X/任务管理/新增任务.png" alt="新增">
+                        <span>新增</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部导航 -->
+        <div class="bottom-nav admin-nav">
+            <div class="nav-item" data-page="admin-navigation">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/导航-up.png" 
+                     alt="导航">
+                <div class="nav-text">导航</div>
+            </div>
+            <div class="nav-item" data-page="admin-data">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/工地数据-up.png" 
+                     alt="工地数据">
+                <div class="nav-text">工地数据</div>
+            </div>
+            <div class="nav-item active" data-page="admin-transport">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-down.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/运输管理-up.png" 
+                     alt="运输管理">
+                <div class="nav-text">运输管理</div>
+            </div>
+            <div class="nav-item" data-page="admin-profile">
+                <img class="nav-icon-img" 
+                     src="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-up.png" 
+                     data-active="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-down.png" 
+                     data-inactive="images/工地数字导航小程序切图/管理/2X/菜单ICON/我的-up.png" 
+                     alt="我的">
+                <div class="nav-text">我的</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/admin_transport.js"></script>
+</body>
+</html>

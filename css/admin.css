@@ -1,0 +1,331 @@
+/* 管理员界面样式 */
+
+.admin-container {
+    position: relative;
+    width: 100%;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* 顶部筛选栏 */
+.admin-filter-bar {
+    position: absolute;
+    top: 80px;
+    left: 16px;
+    right: 16px;
+    z-index: 100;
+    display: flex;
+    gap: 8px;
+}
+
+.filter-item {
+    flex: 1;
+    background: white;
+    border-radius: 20px;
+    padding: 8px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.filter-item:active {
+    transform: scale(0.98);
+    background: #f5f5f5;
+}
+
+.filter-item span {
+    font-size: 13px;
+    color: #333;
+    font-weight: 500;
+}
+
+.filter-item i {
+    font-size: 10px;
+    color: #999;
+}
+
+/* 右侧控制按钮 */
+.admin-map-controls {
+    position: absolute;
+    bottom: 120px;
+    right: 16px;
+    z-index: 200;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.admin-control-btn {
+    width: 48px;
+    height: 48px;
+    background: white;
+    border: none;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.admin-control-btn img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+.admin-control-btn i {
+    font-size: 20px;
+    color: #666;
+}
+
+.admin-control-btn:active {
+    transform: scale(0.95);
+}
+
+.admin-control-btn.active {
+    background: #1890ff;
+}
+
+.admin-control-btn.active i {
+    color: white;
+}
+
+.admin-control-btn.active img {
+    filter: brightness(0) invert(1);
+}
+
+/* 车辆图例 */
+.vehicle-legend {
+    position: absolute;
+    bottom: 120px;
+    left: 16px;
+    z-index: 200;
+    background: white;
+    border-radius: 12px;
+    padding: 16px 20px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.legend-item {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+}
+
+.legend-item img {
+    width: 36px;
+    height: 36px;
+    object-fit: contain;
+    transform: rotate(-90deg);
+}
+
+.legend-item span {
+    font-size: 14px;
+    color: #333;
+    white-space: nowrap;
+    font-weight: 500;
+}
+
+/* 管理员底部导航 */
+.admin-nav {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    z-index: 300;
+}
+
+.admin-nav .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 0;
+}
+
+.admin-nav .nav-icon-img {
+    width: 24px;
+    height: 24px;
+    margin-bottom: 4px;
+}
+
+.admin-nav .nav-text {
+    font-size: 11px;
+    color: #999;
+}
+
+.admin-nav .nav-item.active .nav-text {
+    color: #1890ff;
+}
+
+/* 地图容器调整 */
+.admin-container #map-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+/* 管理员底部卡片 */
+.admin-bottom-card {
+    position: absolute;
+    bottom: 60px;
+    left: 0;
+    right: 0;
+    background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 -2px 20px rgba(0, 0, 0, 0.1);
+    z-index: 150;
+    transition: transform 0.3s ease;
+    transform: translateY(calc(100% - 40px));
+}
+
+.admin-bottom-card.expanded {
+    transform: translateY(0);
+}
+
+/* 卡片拖动条 */
+.card-handle {
+    padding: 12px 0;
+    display: flex;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.handle-bar {
+    width: 40px;
+    height: 4px;
+    background: #1890ff;
+    border-radius: 2px;
+}
+
+/* 右侧按钮组在卡片展开时上移 */
+.admin-map-controls.card-expanded {
+    bottom: 280px;
+}
+
+.vehicle-legend.card-expanded {
+    bottom: 280px;
+}
+
+/* 响应式调整 */
+@media (max-width: 375px) {
+    .admin-filter-bar {
+        gap: 6px;
+    }
+    
+    .filter-item {
+        padding: 6px 10px;
+    }
+    
+    .filter-item span {
+        font-size: 12px;
+    }
+    
+    .vehicle-legend {
+        padding: 10px;
+        gap: 10px;
+    }
+    
+    .legend-item img {
+        width: 28px;
+        height: 28px;
+    }
+}
+
+
+/* 管理员我的页面 - 功能菜单 */
+.menu-list {
+    margin: 20px 15px;
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    padding: 16px 20px;
+    background: white;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.3s;
+}
+
+.menu-item:active {
+    background: #f5f5f5;
+    transform: scale(0.98);
+}
+
+.menu-icon {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    margin-right: 12px;
+}
+
+.menu-text {
+    flex: 1;
+    font-size: 15px;
+    color: #333;
+    font-weight: 500;
+}
+
+.menu-badge {
+    background: #ff4d4f;
+    color: white;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-right: 8px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.menu-arrow {
+    color: #999;
+    font-size: 14px;
+}
+
+
+/* 管理员信息卡片调整 */
+.admin-card {
+    height: 126px;
+}
+
+.admin-card .card-background {
+    width: auto;
+    height: 90%;
+    object-fit: contain;
+    position: absolute;
+    right: 10px;
+    bottom: 5px;
+    top: auto;
+    left: auto;
+    z-index: 1;
+    opacity: 1;
+}
+
+
+/* 管理员卡片内容居中 */
+.admin-card .driver-info {
+    align-items: center;
+    justify-content: flex-start;
+}
+
+.admin-card .driver-details {
+    padding-top: 0;
+}
+
+.admin-card .driver-name {
+    margin: 0;
+}
