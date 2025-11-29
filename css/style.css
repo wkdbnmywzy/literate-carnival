@@ -464,18 +464,18 @@ body {
     display: flex;
     align-items: center;
     gap: 0;
-    position: relative;
-    padding-left: 5%; /* 左侧 5% 空白 */
-    padding-right: 5%; /* 右侧 5% 空白 */
+    position: static;
+    padding: 0; /* 移除所有 padding */
 }
 
 .location-inputs-wrapper {
-    width: 72%; /* 白色卡片占 72% */
+    position: relative; /* 改回 relative */
+    width: 76%; /* 白色卡片占 76% */
+    margin-left: 4%; /* 左侧 4% 空白 */
     border: 1px solid #e6e9ef;
     border-radius: 12px;
     background: #fff;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    position: relative;
     padding-right: 50px; /* 预留切换按钮空间 */
 }
 
@@ -612,8 +612,8 @@ body {
 
 .add-waypoint {
     position: absolute;
-    right: 5%; /* 右侧 5% 空白 */
-    width: 18%; /* 途径点按钮区域占 18% */
+    right: 4%; /* 右侧 4% 空白 */
+    width: 12%; /* 途径点按钮区域占 12% */
     top: 50%;
     transform: translateY(-50%);
     display: flex;
