@@ -41,7 +41,7 @@ const NavCore = (function() {
 
     // 速度计算相关
     let gpsHistory = [];            // GPS历史记录 [{position, time, segmentIndex}, ...]
-    let currentSpeed = 1.5;         // 当前速度（m/s），初始值为慢行卡车速度
+    let currentSpeed = 8.33;        // 当前速度（m/s），初始值为8.33m/s（30km/h）
     let lastStraightPromptTime = 0; // 上一次直行提示时间
     let lastPromptType = null;      // 上一次提示类型（用于避免重复）
 
@@ -55,6 +55,14 @@ const NavCore = (function() {
     // 地图旋转校验机制相关
     let mapRotationCorrected = false; // 当前是否已校正过地图旋转
     let lastCorrectionTime = 0;      // 上一次校正的时间戳
+
+    // 偏离检测防抖
+    let deviationStartTime = 0;      // 开始偏离的时间戳
+    let hasAnnouncedDeviation = false; // 是否已播报偏离
+
+    // 转弯期间校验控制
+    let isTurningPhase = false;      // 是否处于转弯阶段
+    let turningPhaseEndTime = 0;     // 转弯阶段结束时间（播报"转弯"后3秒）
 
     // 设备朝向（导航页未引入首页 map-core.js，需要独立监听）
     let deviceHeading = null;       // 设备方向（0-360，正北为0，顺时针）
@@ -373,7 +381,7 @@ const NavCore = (function() {
             navigationPath = path;
 
             const totalDistance = calculatePathDistance(path);
-            const estimatedTime = Math.ceil(totalDistance / 1.2);
+            const estimatedTime = Math.ceil(totalDistance / 8.33); // 使用8.33m/s（30km/h）计算预计时间
 
             if (typeof NavUI !== 'undefined' && NavUI.updateRouteInfo) {
                 NavUI.updateRouteInfo({
@@ -1272,9 +1280,9 @@ const NavCore = (function() {
                         }
                     }
                 }
-                
+
                 targetInfo.distance = totalDistance;
-                targetInfo.time = Math.ceil(totalDistance / 1.2); // 假设步行速度1.2m/s
+                targetInfo.time = Math.ceil(totalDistance / 8.33); // 使用8.33m/s（30km/h）计算时间
             }
 
             // 更新UI
@@ -1372,6 +1380,23 @@ const NavCore = (function() {
 
                 sectionStart = prevTurnIndex >= 0 ? prevTurnIndex : 0;
                 sectionEnd = nextTurnIndex;
+
+                // 【关键优化】如果接近转向点（距离转向点<8个点），扩大搜索范围到下一节
+                // 这样可以避免V字急转弯和直角转弯时误判为偏离
+                // 8个点 × 3米/点 = 24米的提前搜索距离
+                if (nextTurnIndex < pointSet.length - 1) {
+                    const distanceToTurn = nextTurnIndex - currentSnappedIndex;
+                    if (distanceToTurn < 8) {
+                        // 找到下下个转向点
+                        for (let i = 0; i < turningPoints.length; i++) {
+                            if (turningPoints[i].pointIndex > nextTurnIndex) {
+                                sectionEnd = turningPoints[i].pointIndex;
+                                console.log(`[点集吸附] 接近转向点(${distanceToTurn}个点)，扩大搜索到下一节: ${sectionStart} - ${sectionEnd}`);
+                                break;
+                            }
+                        }
+                    }
+                }
             } else {
                 // 首次吸附或段切换后：搜索整个当前段（避免段切换时定位不准）
                 sectionStart = 0;
@@ -1540,13 +1565,21 @@ const NavCore = (function() {
                 nextTurningPointIndex = nextTurnPoint.pointIndex;
                 hasPrompted1_4 = false;
                 hasPromptedBefore = false;
+
+                // 【转弯校验】新转向点，重置转弯阶段（可能上一个转弯未完成）
+                if (isTurningPhase) {
+                    console.log('[转弯校验] 检测到新转向点，重置转弯阶段状态');
+                    isTurningPhase = false;
+                    turningPhaseEndTime = 0;
+                }
             }
 
             // 掉头特殊处理：到达掉头点后播报
             if (nextTurnPoint.turnType === 'uturn') {
-                // 1. 到达掉头点附近（当前点 或 距离≤4米）：直接播报掉头
-                const isNearUturnPoint = (currentIndex === nextTurnPoint.pointIndex) ||
-                                        (currentIndex >= nextTurnPoint.pointIndex - 1 && distanceToTurn <= 4);
+                // 1. 到达掉头点附近（距离≤6米）：直接播报掉头
+                // 修复：确保在转向点之前播报，不要等到过了转向点
+                const isNearUturnPoint = (currentIndex < nextTurnPoint.pointIndex && distanceToTurn <= 6) ||
+                                        (currentIndex === nextTurnPoint.pointIndex);
 
                 if (isNearUturnPoint) {
                     if (!hasPromptedBefore) {
@@ -1560,6 +1593,11 @@ const NavCore = (function() {
                         NavTTS.speak(turnAction, { force: true }); // 强制播报
                         hasPromptedBefore = true;
                         lastGuidanceTime = now;
+
+                        // 【转弯校验】播报转弯，设置3秒后结束转弯阶段
+                        turningPhaseEndTime = now + 3000;
+                        console.log('[转弯校验] 播报掉头，3秒后结束转弯阶段');
+
                         console.log(`[掉头播报] ${turnAction}, 当前索引=${currentIndex}, 掉头点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                     }
                     return;
@@ -1578,14 +1616,19 @@ const NavCore = (function() {
                         NavTTS.speak(`前方准备${turnAction}`, { force: true }); // 强制播报
                         hasPrompted1_4 = true;
                         lastGuidanceTime = now;
+
+                        // 【转弯校验】进入转弯准备阶段（掉头）
+                        isTurningPhase = true;
+                        console.log('[转弯校验] 进入转弯准备阶段（掉头）');
                     }
                     return;
                 }
             } else {
-                // 左转/右转处理：原触发条件（前一个点）+ 范围触发
-                // 1. 到达转向点附近（前一个点 或 距离≤4米）：直接播报转向
-                const isNearTurnPoint = (currentIndex === nextTurnPoint.pointIndex - 1) ||
-                                       (currentIndex >= nextTurnPoint.pointIndex - 2 && distanceToTurn <= 4);
+                // 左转/右转处理：提前播报
+                // 1. 到达转向点附近（距离≤8米且在转向点之前）：直接播报转向
+                // 修复：确保在转向点之前播报，距离阈值从4米增加到8米，避免车速快时错过
+                const isNearTurnPoint = (currentIndex < nextTurnPoint.pointIndex && distanceToTurn <= 8) ||
+                                       (currentIndex === nextTurnPoint.pointIndex - 1);
 
                 if (isNearTurnPoint) {
                     if (!hasPromptedBefore) {
@@ -1599,6 +1642,11 @@ const NavCore = (function() {
                         NavTTS.speak(turnAction, { force: true }); // 强制播报
                         hasPromptedBefore = true;
                         lastGuidanceTime = now;
+
+                        // 【转弯校验】播报转弯，设置3秒后结束转弯阶段
+                        turningPhaseEndTime = now + 3000;
+                        console.log('[转弯校验] 播报转弯，3秒后结束转弯阶段');
+
                         console.log(`[转向播报] ${turnAction}, 当前索引=${currentIndex}, 转向点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                     }
                     return;
@@ -1617,6 +1665,10 @@ const NavCore = (function() {
                         NavTTS.speak(`前方准备${turnAction}`, { force: true }); // 强制播报
                         hasPrompted1_4 = true;
                         lastGuidanceTime = now;
+
+                        // 【转弯校验】进入转弯准备阶段（左转/右转）
+                        isTurningPhase = true;
+                        console.log('[转弯校验] 进入转弯准备阶段（左转/右转）');
                     }
                     return;
                 }
@@ -1687,8 +1739,8 @@ const NavCore = (function() {
                     // 平滑处理（移动平均，更平滑）
                     currentSpeed = currentSpeed * 0.8 + newSpeed * 0.2;
 
-                    // 限制速度范围：0.3-3 m/s（1.08-10.8 km/h）
-                    currentSpeed = Math.max(0.3, Math.min(3, currentSpeed));
+                    // 限制速度范围：1-20 m/s（3.6-72 km/h）
+                    currentSpeed = Math.max(1, Math.min(20, currentSpeed));
 
                     console.log(`[速度计算] 当前速度: ${currentSpeed.toFixed(2)} m/s (${(currentSpeed * 3.6).toFixed(1)} km/h), 采样点:${gpsHistory.length}`);
                 }
@@ -2048,10 +2100,22 @@ const NavCore = (function() {
         try {
             const now = Date.now();
 
+            // 检查转弯阶段是否已结束
+            if (isTurningPhase && turningPhaseEndTime > 0 && now > turningPhaseEndTime) {
+                isTurningPhase = false;
+                turningPhaseEndTime = 0;
+                console.log('[转弯校验] 转弯阶段已结束，恢复正常校验节奏');
+            }
+
             // 检查是否需要执行校验
-            // 1. 强制校验（偏离回归后立即执行）
-            // 2. 常规校验（10秒一次）
-            if (!forceSecondaryCheck && (now - lastSecondaryCheckTime < secondaryCheckCooldown)) {
+            // 1. 转弯阶段：持续工作，忽略冷却时间
+            // 2. 强制校验（偏离回归后立即执行）
+            // 3. 常规校验（10秒一次）
+            const shouldCheckDuringTurning = isTurningPhase;
+            const shouldForceCheck = forceSecondaryCheck;
+            const shouldNormalCheck = (now - lastSecondaryCheckTime >= secondaryCheckCooldown);
+
+            if (!shouldCheckDuringTurning && !shouldForceCheck && !shouldNormalCheck) {
                 return;
             }
 
@@ -2062,6 +2126,11 @@ const NavCore = (function() {
             if (forceSecondaryCheck) {
                 console.log('[二次校验] 偏离回归后立即执行校验');
                 forceSecondaryCheck = false;
+            }
+
+            // 转弯阶段日志
+            if (shouldCheckDuringTurning) {
+                console.log('[二次校验] 转弯阶段，持续校验地图竖直');
             }
 
             const pointSet = window.currentSegmentPointSet;
@@ -2227,6 +2296,12 @@ const NavCore = (function() {
             if (snapped) {
                 // ========== 吸附成功 ==========
 
+                // 【重置偏离防抖计时器】
+                if (deviationStartTime !== 0) {
+                    console.log('[点集吸附] 重新吸附成功，重置偏离计时器');
+                    deviationStartTime = 0;
+                }
+
                 // 检查是否从偏离状态恢复
                 if (NavRenderer.isDeviated()) {
                     // 判断是否跨节接入（偏离后接入到不同的节）
@@ -2369,7 +2444,35 @@ const NavCore = (function() {
                 secondaryVerticalCheck(displayPosition, currentSnappedIndex);
             } else {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
-                console.log('[点集吸附] 超出8米范围，进入偏离状态');
+                const now = Date.now();
+
+                // 【防抖机制】首次检测到偏离时记录时间，持续2秒才真正进入偏离状态
+                if (deviationStartTime === 0) {
+                    deviationStartTime = now;
+                    console.log('[点集吸附] 检测到可能偏离（超出8米），开始计时...');
+
+                    // 即使可能偏离，也继续显示在最后吸附位置，不要立即跳到GPS位置
+                    displayPosition = NavRenderer.getLastSnappedPosition() || position;
+                    displayHeading = calculateCurrentBearing(currentSnappedIndex);
+
+                    // 地图跟随最后吸附位置
+                    NavRenderer.setCenterOnly(displayPosition, true);
+                    return; // 直接返回，不进入偏离状态
+                }
+
+                const deviationDuration = (now - deviationStartTime) / 1000; // 秒
+
+                // 持续2秒仍未吸附，确认为真正偏离
+                if (deviationDuration < 2.0) {
+                    console.log(`[点集吸附] 偏离持续 ${deviationDuration.toFixed(1)}秒，继续等待...`);
+                    // 继续显示在最后吸附位置
+                    displayPosition = NavRenderer.getLastSnappedPosition() || position;
+                    displayHeading = calculateCurrentBearing(currentSnappedIndex);
+                    NavRenderer.setCenterOnly(displayPosition, true);
+                    return;
+                }
+
+                console.log('[点集吸附] 确认偏离（持续2秒超出8米范围）');
 
                 // 获取最后吸附位置作为偏离起点
                 const lastSnappedPos = NavRenderer.getLastSnappedPosition();
@@ -2517,6 +2620,14 @@ const NavCore = (function() {
         }
     }
 
+    /**
+     * 获取当前速度
+     * @returns {number} 当前速度（m/s）
+     */
+    function getCurrentSpeed() {
+        return currentSpeed;
+    }
+
     // 公开API
     return {
         init,
@@ -2525,7 +2636,8 @@ const NavCore = (function() {
         getStatus,
         cleanup,
         getRouteData: () => routeData,
-        getNavigationPath: () => navigationPath
+        getNavigationPath: () => navigationPath,
+        getCurrentSpeed
     };
 })();
 

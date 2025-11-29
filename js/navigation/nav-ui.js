@@ -439,8 +439,13 @@ const NavUI = (function() {
                 }
             }
 
-            // 计算预计时间（假设步行速度1.2m/s）
-            const remainingTime = Math.ceil(remainingDistance / 1.2 / 60); // 分钟
+            // 获取当前动态速度（导航开始后会根据实际移动速度动态调整）
+            const currentSpeed = (typeof NavCore !== 'undefined' && NavCore.getCurrentSpeed)
+                ? NavCore.getCurrentSpeed()
+                : 8.33; // 未开始导航时使用默认8.33m/s（30km/h）
+
+            // 计算预计时间（使用动态速度）
+            const remainingTime = Math.ceil(remainingDistance / currentSpeed / 60); // 分钟
 
             // 更新目标标签
             const remainingLabelEl = document.getElementById('tip-remaining-label');
@@ -515,8 +520,13 @@ const NavUI = (function() {
                 }
             }
 
-            // 计算预计时间（假设步行速度1.2m/s）
-            const totalTime = Math.ceil(totalDistance / 1.2 / 60); // 分钟
+            // 获取当前动态速度（导航开始后会根据实际移动速度动态调整）
+            const currentSpeed = (typeof NavCore !== 'undefined' && NavCore.getCurrentSpeed)
+                ? NavCore.getCurrentSpeed()
+                : 8.33; // 未开始导航时使用默认8.33m/s（30km/h）
+
+            // 计算预计时间（使用动态速度）
+            const totalTime = Math.ceil(totalDistance / currentSpeed / 60); // 分钟
 
             // 更新下方卡片UI
             const destDistanceEl = document.getElementById('destination-distance');
