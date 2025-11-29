@@ -300,6 +300,8 @@ body {
     border-radius: 20px 20px 0 0;
     padding: 20px 0; /* 上下 20px，左右由子元素百分比控制 */
     box-shadow: none;
+    max-width: 480px; /* 限制最大宽度 */
+    margin: 0 auto; /* 居中 */
 }
 
 /* 导航页面底部卡片：与底部卡片保持一致的渐变与圆角样式 */
@@ -1377,6 +1379,8 @@ body {
     height: 60px;
     pointer-events: auto;
     width: 100%;
+    max-width: 480px; /* 限制最大宽度 */
+    margin: 0 auto; /* 居中 */
 }
 
 .nav-item {
@@ -1493,7 +1497,7 @@ body {
 /* 针对宽屏设备（横屏模式） */
 @media (orientation: landscape) {
     .container {
-        max-width: 100%;
+        max-width: 480px; /* 保持 480px 限制 */
     }
 
     .status-bar {
@@ -1538,19 +1542,7 @@ body {
         margin: 0 auto; /* 居中 */
     }
 
-    .bottom-nav {
-        padding: 5px 0;
-        height: 40px;
-    }
-
-    .nav-icon {
-        font-size: 16px;
-        margin-bottom: 2px;
-    }
-
-    .nav-text {
-        font-size: 10px;
-    }
+    /* 保持默认的 60px 高度 */
 }
 
 /* 针对带刘海或打孔屏的手机 */
@@ -1578,76 +1570,7 @@ body {
     }
 }
 
-/* 大屏设备导航栏优化 */
-@media (min-width: 768px) {
-    .bottom-nav {
-        height: 70px;
-        padding: 12px 5%;
-        width: 100%;
-        justify-content: space-evenly;
-    }
-    
-    .nav-icon-img {
-        width: 28px;
-        height: 28px;
-        margin-bottom: 6px;
-    }
-    
-    .nav-text {
-        font-size: 14px;
-    }
-}
-
-@media (min-width: 1024px) {
-    .bottom-nav {
-        height: 80px;
-        padding: 15px 5%;
-        width: 100%;
-        max-width: none;
-        left: 0;
-        transform: none;
-        border-radius: 20px 20px 0 0;
-        justify-content: center;
-        gap: 60px;
-    }
-    
-    .nav-icon-img {
-        width: 32px;
-        height: 32px;
-        margin-bottom: 8px;
-    }
-    
-    .nav-text {
-        font-size: 16px;
-    }
-    
-    .nav-item {
-        min-width: 120px;
-        max-width: 200px;
-    }
-}
-
-@media (min-width: 1440px) {
-    .bottom-nav {
-        padding: 18px 5%;
-        gap: 80px;
-    }
-    
-    .nav-item {
-        min-width: 150px;
-        max-width: 240px;
-    }
-    
-    .nav-icon-img {
-        width: 36px;
-        height: 36px;
-        margin-bottom: 10px;
-    }
-    
-    .nav-text {
-        font-size: 18px;
-    }
-}
+/* 大屏设备导航栏优化 - 已移除，保持 480px 手机样式 */
 
 /* 适配超长屏设备（如全面屏手机） */
 @media (aspect-ratio: 2/3) {
