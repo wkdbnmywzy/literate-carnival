@@ -1594,9 +1594,10 @@ const NavCore = (function() {
                         hasPromptedBefore = true;
                         lastGuidanceTime = now;
 
-                        // 【转弯校验】播报转弯，设置3秒后结束转弯阶段
-                        turningPhaseEndTime = now + 3000;
-                        console.log('[转弯校验] 播报掉头，3秒后结束转弯阶段');
+                        // 【转弯校验】播报掉头，进入转弯阶段，设置5秒后结束
+                        isTurningPhase = true;
+                        turningPhaseEndTime = now + 5000;
+                        console.log('[转弯校验] 播报掉头，进入转弯阶段，5秒后结束');
 
                         console.log(`[掉头播报] ${turnAction}, 当前索引=${currentIndex}, 掉头点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                     }
@@ -1643,9 +1644,10 @@ const NavCore = (function() {
                         hasPromptedBefore = true;
                         lastGuidanceTime = now;
 
-                        // 【转弯校验】播报转弯，设置3秒后结束转弯阶段
-                        turningPhaseEndTime = now + 3000;
-                        console.log('[转弯校验] 播报转弯，3秒后结束转弯阶段');
+                        // 【转弯校验】播报转弯，进入转弯阶段，设置5秒后结束
+                        isTurningPhase = true;
+                        turningPhaseEndTime = now + 5000;
+                        console.log('[转弯校验] 播报转弯，进入转弯阶段，5秒后结束');
 
                         console.log(`[转向播报] ${turnAction}, 当前索引=${currentIndex}, 转向点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                     }
@@ -2087,7 +2089,7 @@ const NavCore = (function() {
 
     // 二次校验相关状态
     let lastSecondaryCheckTime = 0;      // 上次二次校验时间
-    let secondaryCheckCooldown = 10000;  // 常规冷却时间10秒
+    let secondaryCheckCooldown = 5000;   // 常规冷却时间5秒（优化性能与精度平衡）
     let forceSecondaryCheck = false;     // 是否强制立即执行二次校验（偏离回归后）
 
     /**
@@ -2107,20 +2109,36 @@ const NavCore = (function() {
                 console.log('[转弯校验] 转弯阶段已结束，恢复正常校验节奏');
             }
 
+            // 检查剩余转向点数量
+            const turningPoints = window.currentSegmentTurningPoints;
+            const pointSet = window.currentSegmentPointSet;
+            let remainingTurnPoints = 0;
+            if (turningPoints && turningPoints.length > 0) {
+                for (let i = 0; i < turningPoints.length; i++) {
+                    if (turningPoints[i].pointIndex > currentIndex) {
+                        remainingTurnPoints++;
+                    }
+                }
+            }
+
             // 检查是否需要执行校验
             // 1. 转弯阶段：持续工作，忽略冷却时间
             // 2. 强制校验（偏离回归后立即执行）
-            // 3. 常规校验（10秒一次）
+            // 3. 剩余转向点少于4个：持续检测（最后路段加强校验）
+            // 4. 常规校验（5秒一次）
             const shouldCheckDuringTurning = isTurningPhase;
             const shouldForceCheck = forceSecondaryCheck;
+            const shouldCheckNearEnd = (remainingTurnPoints < 4);
             const shouldNormalCheck = (now - lastSecondaryCheckTime >= secondaryCheckCooldown);
 
-            if (!shouldCheckDuringTurning && !shouldForceCheck && !shouldNormalCheck) {
+            if (!shouldCheckDuringTurning && !shouldForceCheck && !shouldCheckNearEnd && !shouldNormalCheck) {
                 return;
             }
 
-            // 更新校验时间（无论是否触发校正，都更新时间）
-            lastSecondaryCheckTime = now;
+            // 更新校验时间（转弯阶段不更新冷却时间，避免影响常规检查节奏）
+            if (!shouldCheckDuringTurning) {
+                lastSecondaryCheckTime = now;
+            }
 
             // 重置强制校验标志
             if (forceSecondaryCheck) {
@@ -2128,9 +2146,11 @@ const NavCore = (function() {
                 forceSecondaryCheck = false;
             }
 
-            // 转弯阶段日志
+            // 转弯阶段或接近终点日志
             if (shouldCheckDuringTurning) {
-                console.log('[二次校验] 转弯阶段，持续校验地图竖直');
+                console.log('[二次校验] 转弯阶段，持续校验地图竖直（不计入冷却）');
+            } else if (shouldCheckNearEnd) {
+                console.log(`[二次校验] 剩余${remainingTurnPoints}个转向点，加强校验`);
             }
 
             const pointSet = window.currentSegmentPointSet;
@@ -2166,9 +2186,9 @@ const NavCore = (function() {
             const deviationFromSouth = Math.abs(screenAngle - 180);
             const deviationFromVertical = Math.min(deviationFromNorth, deviationFromSouth);
 
-            // 如果偏差超过35度，说明道路严重偏离竖直，需要强制校正
-            // 使用35度阈值（比第一层的15度更宽松），避免与第一层冲突
-            if (deviationFromVertical > 35) {
+            // 如果偏差超过20度，说明道路偏离竖直，需要校正
+            // 使用20度阈值（优化后的阈值，提高校验灵敏度）
+            if (deviationFromVertical > 20) {
                 console.warn(`[二次校验] 道路未竖直！局部方向=${localBearing.toFixed(1)}°, 地图旋转=${mapRotation.toFixed(1)}°, 屏幕角度=${screenAngle.toFixed(1)}°, 偏差=${deviationFromVertical.toFixed(1)}°`);
 
                 // 强制校正：旋转地图让道路竖直
