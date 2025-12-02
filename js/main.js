@@ -26,11 +26,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 初始化KML导入功能
     initKMLImport();
- // 尝试自动加载同目录下的默认 KML 文件（更健壮的多重回退并输出调试信息）
+    
+    // 尝试自动加载同目录下的默认 KML 文件（更健壮的多重回退并输出调试信息）
     (function tryLoadDefaultKml() {
         const candidateUrls = [];
 
-        candidateUrls.push('黄家湖校区导航测试   11.12.kml');
+        candidateUrls.push('丰隆.kml');
         let tried = 0;
         function tryNext() {
             const url = candidateUrls[tried++];
