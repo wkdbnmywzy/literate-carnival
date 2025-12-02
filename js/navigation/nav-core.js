@@ -59,6 +59,7 @@ const NavCore = (function() {
     // 偏离检测防抖
     let deviationStartTime = 0;      // 开始偏离的时间戳
     let hasAnnouncedDeviation = false; // 是否已播报偏离
+    let deviationCheckIntervalId = null; // 偏离检测期间的加速定时器
 
     // 转弯期间校验控制
     let isTurningPhase = false;      // 是否处于转弯阶段
@@ -2214,6 +2215,70 @@ const NavCore = (function() {
     }
 
     /**
+     * 启动偏离快速检测（1.5秒一次）
+     * 在可能偏离的3秒防抖期间，加快GPS检测频率
+     */
+    function startDeviationFastCheck() {
+        // 如果已经有定时器在运行，先清除
+        if (deviationCheckIntervalId !== null) {
+            clearInterval(deviationCheckIntervalId);
+        }
+
+        console.log('[偏离检测] 启动GPS加速检测（1.5秒/次）');
+
+        deviationCheckIntervalId = setInterval(() => {
+            // 主动触发一次GPS位置获取
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lng = pos.coords.longitude;
+                    const lat = pos.coords.latitude;
+                    const accuracy = pos.coords.accuracy || 10;
+                    const heading = pos.coords.heading || 0;
+
+                    // 坐标转换
+                    const converted = NavGPS.convertCoordinates(lng, lat);
+
+                    console.log('[偏离检测] 快速检测GPS更新:', converted, `精度:${accuracy}米`);
+
+                    // 手动触发吸附检测（复用主逻辑）
+                    const snapped = findNearestPointInSet(converted);
+
+                    if (snapped) {
+                        // 吸附成功，说明是GPS漂移！
+                        console.log('[偏离检测] ✓ GPS已回归，判定为漂移，停止加速检测');
+                        stopDeviationFastCheck();
+
+                        // 重置偏离计时器
+                        deviationStartTime = 0;
+
+                        // 触发正常的GPS更新流程
+                        onGPSUpdate(converted, accuracy, heading);
+                    }
+                },
+                (error) => {
+                    console.warn('[偏离检测] GPS快速检测失败:', error.message);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 5000,
+                    maximumAge: 0
+                }
+            );
+        }, 1500); // 1.5秒一次
+    }
+
+    /**
+     * 停止偏离快速检测，恢复正常频率
+     */
+    function stopDeviationFastCheck() {
+        if (deviationCheckIntervalId !== null) {
+            clearInterval(deviationCheckIntervalId);
+            deviationCheckIntervalId = null;
+            console.log('[偏离检测] 停止GPS加速检测，恢复正常频率');
+        }
+    }
+
+    /**
      * GPS位置更新回调
      * @param {Array} position - [lng, lat]
      * @param {number} accuracy - 精度（米）
@@ -2333,6 +2398,8 @@ const NavCore = (function() {
                 if (deviationStartTime !== 0) {
                     console.log('[点集吸附] 重新吸附成功，重置偏离计时器');
                     deviationStartTime = 0;
+                    // 停止GPS加速检测
+                    stopDeviationFastCheck();
                 }
 
                 // 检查是否从偏离状态恢复
@@ -2479,10 +2546,13 @@ const NavCore = (function() {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
                 const now = Date.now();
 
-                // 【防抖机制】首次检测到偏离时记录时间，持续2秒才真正进入偏离状态
+                // 【防抖机制】首次检测到偏离时记录时间，持续3秒才真正进入偏离状态
                 if (deviationStartTime === 0) {
                     deviationStartTime = now;
-                    console.log('[点集吸附] 检测到可能偏离（超出8米），开始计时...');
+                    console.log('[点集吸附] 检测到可能偏离（超出阈值），开始3秒防抖检测...');
+
+                    // 【GPS加速】启动1.5秒一次的快速检测，判断是漂移还是真偏离
+                    startDeviationFastCheck();
 
                     // 即使可能偏离，也继续显示在最后吸附位置，不要立即跳到GPS位置
                     displayPosition = NavRenderer.getLastSnappedPosition() || position;
@@ -2495,8 +2565,8 @@ const NavCore = (function() {
 
                 const deviationDuration = (now - deviationStartTime) / 1000; // 秒
 
-                // 持续2秒仍未吸附，确认为真正偏离
-                if (deviationDuration < 2.0) {
+                // 持续3秒仍未吸附，确认为真正偏离
+                if (deviationDuration < 3.0) {
                     console.log(`[点集吸附] 偏离持续 ${deviationDuration.toFixed(1)}秒，继续等待...`);
                     // 继续显示在最后吸附位置
                     displayPosition = NavRenderer.getLastSnappedPosition() || position;
@@ -2505,7 +2575,10 @@ const NavCore = (function() {
                     return;
                 }
 
-                console.log('[点集吸附] 确认偏离（持续2秒超出8米范围）');
+                console.log('[点集吸附] 确认偏离（持续3秒未回归）');
+
+                // 停止GPS加速检测（已确认为真偏离，不需要继续加速检测）
+                stopDeviationFastCheck();
 
                 // 获取最后吸附位置作为偏离起点
                 const lastSnappedPos = NavRenderer.getLastSnappedPosition();
