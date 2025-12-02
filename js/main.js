@@ -26,7 +26,67 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 初始化KML导入功能
     initKMLImport();
+ // 尝试自动加载同目录下的默认 KML 文件（更健壮的多重回退并输出调试信息）
+    (function tryLoadDefaultKml() {
+        const candidateUrls = [];
 
+        // 允许通过全局变量覆盖（例如在 HTML 中 window.AUTO_KML_URL = 'https://.../丰隆.kml'）
+        if (window.AUTO_KML_URL) candidateUrls.push(window.AUTO_KML_URL);
+
+        // 几个常见的相对路径备选
+        candidateUrls.push('丰隆.kml');
+        candidateUrls.push(encodeURI('丰隆.kml'));
+        candidateUrls.push('./丰隆.kml');
+        candidateUrls.push('/丰隆.kml');
+
+        // 如果仓库使用英文名或已被重命名，可在这里添加额外备用名
+        candidateUrls.push('fenglong.kml');
+
+        let tried = 0;
+
+        function tryNext() {
+            if (tried >= candidateUrls.length) {
+                console.warn('自动加载 KML: 所有候选 URL 均尝试失败，请检查 GitHub Pages 部署路径或在页面中设置 window.AUTO_KML_URL 指向 KML 的公开 URL。');
+                return;
+            }
+
+            const url = candidateUrls[tried++];
+            console.log('尝试加载 KML，URL=', url);
+
+            fetch(url, { mode: 'cors' })
+                .then(resp => {
+                    if (!resp.ok) {
+                        console.warn('KML fetch 返回非 OK:', resp.status, resp.statusText, 'url=', url);
+                        tryNext();
+                        return null;
+                    }
+                    return resp.text();
+                })
+                .then(kmlText => {
+                    if (!kmlText) return;
+                    console.log('成功加载 KML:', url);
+                    window.isFirstKMLImport = true;
+                    try { sessionStorage.setItem('kmlRawData', kmlText); sessionStorage.setItem('kmlFileName', url); } catch (e) {}
+                    if (typeof parseKML === 'function') parseKML(kmlText, url);
+
+                    // 解析/显示完成后确保启动定位
+                    setTimeout(() => {
+                        if (typeof startRealtimeLocationTracking === 'function') {
+                            try { startRealtimeLocationTracking(); } catch (e) { console.warn('启动实时定位失败', e); }
+                        } else if (typeof getCurrentLocation === 'function') {
+                            try { getCurrentLocation(); } catch (e) { console.warn('一次性定位失败', e); }
+                        }
+                    }, 300);
+                })
+                .catch(err => {
+                    console.warn('加载 KML 失败，url=', url, err);
+                    tryNext();
+                });
+        }
+
+        tryNext();
+    })();
+    
     // 等待地图加载完成后，尝试从sessionStorage恢复KML数据
     setTimeout(function() {
         if (typeof loadKMLFromSession === 'function') {
