@@ -27,6 +27,41 @@ document.addEventListener('DOMContentLoaded', function() {
     // 初始化KML导入功能
     initKMLImport();
 
+    // 尝试自动加载同目录下的默认 KML 文件（尽量使用最小改动）
+    try {
+        fetch('丰隆.kml')
+            .then(resp => {
+                if (!resp.ok) throw new Error('fetch failed: ' + resp.status);
+                return resp.text();
+            })
+            .then(kmlText => {
+                // 标记为首次导入（与用户主动导入保持一致的行为）
+                window.isFirstKMLImport = true;
+
+                // 保存原始文本以便其他模块可能读取（parseKML 同样会覆盖）
+                try { sessionStorage.setItem('kmlRawData', kmlText); sessionStorage.setItem('kmlFileName', '丰隆.kml'); } catch (e) {}
+
+                // 解析并在地图上显示（parseKML 会调用 displayKMLFeatures）
+                if (typeof parseKML === 'function') {
+                    parseKML(kmlText, '丰隆.kml');
+                }
+
+                // 解析/显示完成后确保启动定位（有些显示逻辑会在导入时停止实时定位）
+                setTimeout(() => {
+                    if (typeof startRealtimeLocationTracking === 'function') {
+                        try { startRealtimeLocationTracking(); } catch (e) { console.warn('启动实时定位失败', e); }
+                    } else if (typeof getCurrentLocation === 'function') {
+                        try { getCurrentLocation(); } catch (e) { console.warn('一次性定位失败', e); }
+                    }
+                }, 300);
+            })
+            .catch(err => {
+                console.warn('自动加载丰隆.kml 失败:', err);
+            });
+    } catch (e) {
+        console.warn('自动加载 KML 过程出错:', e);
+    }
+
     // 等待地图加载完成后，尝试从sessionStorage恢复KML数据
     setTimeout(function() {
         if (typeof loadKMLFromSession === 'function') {
