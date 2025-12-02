@@ -1434,8 +1434,31 @@ const NavCore = (function() {
             }
         }
 
-        // 只返回8米范围内的点
-        if (nearestDistance <= 8) {
+        // 【优化】动态吸附阈值：根据场景调整
+        let snapThreshold = 8; // 基础阈值（直线路段）
+
+        // 1. 转弯处放宽阈值到12米（GPS在转弯时误差更大）
+        if (turningPoints && turningPoints.length > 0 && nearestIndex >= 0) {
+            for (let i = 0; i < turningPoints.length; i++) {
+                const turnPointIndex = turningPoints[i].pointIndex;
+                const distanceToTurnPoint = Math.abs(nearestIndex - turnPointIndex);
+
+                // 距离转向点±10个点（约30米）范围内，放宽到12米
+                if (distanceToTurnPoint <= 10) {
+                    snapThreshold = 12;
+                    console.log(`[点集吸附] 接近转向点，放宽吸附阈值到${snapThreshold}米`);
+                    break;
+                }
+            }
+        }
+
+        // 2. 偏离状态下放宽到12米（帮助用户更容易回归路线）
+        if (isDeviated) {
+            snapThreshold = 12;
+            console.log(`[点集吸附] 偏离状态，放宽吸附阈值到${snapThreshold}米`);
+        }
+
+        if (nearestDistance <= snapThreshold) {
             return {
                 index: nearestIndex, // 当前段内的相对索引
                 globalIndex: nearestGlobalIndex, // 全局索引
@@ -2046,42 +2069,33 @@ const NavCore = (function() {
         const nextTurnPos = pointSet[nextTurnPointIndex].position;
         const sectionBearing = calculateBearing(currentPos, nextTurnPos);
 
-        // 检查这个方向是否竖直（南北走向）
-        const isVertical = isRoadVertical(sectionBearing, 15);
+        // 【改进】无论道路什么方向，都旋转地图让它竖直（车头朝上）
+        const map = NavRenderer.getMap();
+        const currentMapRotation = map && typeof map.getRotation === 'function'
+            ? (map.getRotation() || 0)
+            : 0;
 
-        if (!isVertical) {
-            // 道路不竖直，需要校正
-            const map = NavRenderer.getMap();
-            const currentMapRotation = map && typeof map.getRotation === 'function'
-                ? (map.getRotation() || 0)
-                : 0;
+        // 计算期望的地图旋转角度（车头朝上）
+        const expectedRotation = -sectionBearing * Math.PI / 180;
 
-            // 计算期望的地图旋转角度（车头朝上）
-            const expectedRotation = -sectionBearing * Math.PI / 180;
+        // 计算实际偏差（转换为度）
+        const rotationDiff = Math.abs((currentMapRotation * 180 / Math.PI) - (-sectionBearing));
+        const normalizedDiff = Math.min(rotationDiff, 360 - rotationDiff);
 
-            // 计算实际偏差（转换为度）
-            const rotationDiff = Math.abs((currentMapRotation * 180 / Math.PI) - (-sectionBearing));
-            const normalizedDiff = Math.min(rotationDiff, 360 - rotationDiff);
+        // 判断是否需要校正：偏差>15度就旋转
+        if (normalizedDiff > 15) {
+            console.log(`[地图旋转校正] 道路方向=${sectionBearing.toFixed(1)}°, 地图偏差=${normalizedDiff.toFixed(1)}°, 执行校正让道路竖直`);
 
-            // 判断是否需要校正（取消5秒限制）
-            // 条件1：首次校正（mapRotationCorrected = false）
-            // 条件2：偏差>15度
-            const needCorrection = !mapRotationCorrected || (normalizedDiff > 15);
+            // 执行校正：旋转地图让道路竖直（车头朝上）
+            NavRenderer.setHeadingUpMode(position, sectionBearing, true);
 
-            if (needCorrection) {
-                console.log(`[地图旋转校正] 当前位置到转向点不竖直，执行校正：sectionBearing=${sectionBearing.toFixed(1)}°, 当前偏差=${normalizedDiff.toFixed(1)}°`);
-
-                // 执行校正：旋转地图让道路竖直（车头朝上）
-                NavRenderer.setHeadingUpMode(position, sectionBearing, true);
-
-                // 更新状态
-                mapRotationCorrected = true;
-                currentMapRotation = sectionBearing; // 更新记录的旋转角度
-            }
+            // 更新状态
+            mapRotationCorrected = true;
+            currentMapRotation = sectionBearing; // 更新记录的旋转角度
         } else {
-            // 道路已竖直，重置校正标记（准备下次检测）
+            // 偏差<=15度，地图已对齐，重置标记
             if (mapRotationCorrected) {
-                console.log('[地图旋转校正] 当前位置到转向点已竖直，重置校正标记');
+                console.log('[地图旋转校正] 地图已对齐道路方向，重置标记');
                 mapRotationCorrected = false;
             }
         }
@@ -2153,7 +2167,6 @@ const NavCore = (function() {
                 console.log(`[二次校验] 剩余${remainingTurnPoints}个转向点，加强校验`);
             }
 
-            const pointSet = window.currentSegmentPointSet;
             const map = NavRenderer.getMap();
 
             if (!pointSet || !map || currentIndex < 0 || currentIndex >= pointSet.length - 1) {
