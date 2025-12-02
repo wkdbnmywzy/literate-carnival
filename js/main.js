@@ -30,26 +30,9 @@ document.addEventListener('DOMContentLoaded', function() {
     (function tryLoadDefaultKml() {
         const candidateUrls = [];
 
-        // 允许通过全局变量覆盖（例如在 HTML 中 window.AUTO_KML_URL = 'https://.../丰隆.kml'）
-        if (window.AUTO_KML_URL) candidateUrls.push(window.AUTO_KML_URL);
-
-        // 几个常见的相对路径备选
-        candidateUrls.push('丰隆.kml');
-        candidateUrls.push(encodeURI('丰隆.kml'));
-        candidateUrls.push('./丰隆.kml');
-        candidateUrls.push('/丰隆.kml');
-
-        // 如果仓库使用英文名或已被重命名，可在这里添加额外备用名
-        candidateUrls.push('fenglong.kml');
-
+        candidateUrls.push('黄家湖校区导航测试   11.12.kml');
         let tried = 0;
-
         function tryNext() {
-            if (tried >= candidateUrls.length) {
-                console.warn('自动加载 KML: 所有候选 URL 均尝试失败，请检查 GitHub Pages 部署路径或在页面中设置 window.AUTO_KML_URL 指向 KML 的公开 URL。');
-                return;
-            }
-
             const url = candidateUrls[tried++];
             console.log('尝试加载 KML，URL=', url);
 
