@@ -7,6 +7,11 @@
 const NavCore = (function() {
     'use strict';
 
+    // ==================== 吸附阈值配置（全局变量，便于调整）====================
+    const SNAP_THRESHOLD_NORMAL = 8;      // 常规吸附阈值（直线路段、偏离轨迹吸附KML）
+    const SNAP_THRESHOLD_TURNING = 10;    // 转弯处吸附阈值（转弯时GPS误差大，放宽阈值）
+    // ========================================================================
+
     // 导航状态
     let isNavigating = false;
     let navigationPath = [];
@@ -51,10 +56,6 @@ const NavCore = (function() {
     // 导航统计数据
     let navigationStartTime = null;  // 导航开始时间
     let totalTravelDistance = 0;     // 总行程距离（米）
-
-    // 地图旋转校验机制相关
-    let mapRotationCorrected = false; // 当前是否已校正过地图旋转
-    let lastCorrectionTime = 0;      // 上一次校正的时间戳
 
     // 偏离检测防抖
     let deviationStartTime = 0;      // 开始偏离的时间戳
@@ -1435,27 +1436,27 @@ const NavCore = (function() {
             }
         }
 
-        // 【优化】动态吸附阈值：根据场景调整
-        let snapThreshold = 8; // 基础阈值（直线路段）
+        // 【优化】动态吸附阈值：根据场景调整（使用全局配置）
+        let snapThreshold = SNAP_THRESHOLD_NORMAL; // 基础阈值（直线路段）
 
-        // 1. 转弯处放宽阈值到12米（GPS在转弯时误差更大）
+        // 1. 转弯处放宽阈值（GPS在转弯时误差更大）
         if (turningPoints && turningPoints.length > 0 && nearestIndex >= 0) {
             for (let i = 0; i < turningPoints.length; i++) {
                 const turnPointIndex = turningPoints[i].pointIndex;
                 const distanceToTurnPoint = Math.abs(nearestIndex - turnPointIndex);
 
-                // 距离转向点±10个点（约30米）范围内，放宽到12米
+                // 距离转向点±10个点（约30米）范围内，使用转弯阈值
                 if (distanceToTurnPoint <= 10) {
-                    snapThreshold = 12;
+                    snapThreshold = SNAP_THRESHOLD_TURNING;
                     console.log(`[点集吸附] 接近转向点，放宽吸附阈值到${snapThreshold}米`);
                     break;
                 }
             }
         }
 
-        // 2. 偏离状态下放宽到12米（帮助用户更容易回归路线）
+        // 2. 偏离状态下使用转弯阈值（帮助用户更容易回归路线）
         if (isDeviated) {
-            snapThreshold = 12;
+            snapThreshold = SNAP_THRESHOLD_TURNING;
             console.log(`[点集吸附] 偏离状态，放宽吸附阈值到${snapThreshold}米`);
         }
 
@@ -2041,75 +2042,15 @@ const NavCore = (function() {
         return minDeviation <= threshold;
     }
 
-    /**
-     * 检查并校正地图旋转，确保道路竖直显示
-     * @param {Array} position - 当前位置 [lng, lat]
-     * @param {number} currentIndex - 当前吸附点索引
-     */
-    function checkAndCorrectMapRotation(position, currentIndex) {
-        const pointSet = window.currentSegmentPointSet;
-        const turningPoints = window.currentSegmentTurningPoints;
 
-        if (!pointSet || currentIndex < 0 || currentIndex >= pointSet.length) {
-            return;
-        }
 
-        // 找到下一个转向点
-        let nextTurnPointIndex = pointSet.length - 1; // 默认段末
-        if (turningPoints && turningPoints.length > 0) {
-            for (let i = 0; i < turningPoints.length; i++) {
-                if (turningPoints[i].pointIndex > currentIndex) {
-                    nextTurnPointIndex = turningPoints[i].pointIndex;
-                    break;
-                }
-            }
-        }
-
-        // 计算从当前位置到下一个转向点的方向
-        const currentPos = pointSet[currentIndex].position;
-        const nextTurnPos = pointSet[nextTurnPointIndex].position;
-        const sectionBearing = calculateBearing(currentPos, nextTurnPos);
-
-        // 【改进】无论道路什么方向，都旋转地图让它竖直（车头朝上）
-        const map = NavRenderer.getMap();
-        const currentMapRotation = map && typeof map.getRotation === 'function'
-            ? (map.getRotation() || 0)
-            : 0;
-
-        // 计算期望的地图旋转角度（车头朝上）
-        const expectedRotation = -sectionBearing * Math.PI / 180;
-
-        // 计算实际偏差（转换为度）
-        const rotationDiff = Math.abs((currentMapRotation * 180 / Math.PI) - (-sectionBearing));
-        const normalizedDiff = Math.min(rotationDiff, 360 - rotationDiff);
-
-        // 判断是否需要校正：偏差>15度就旋转
-        if (normalizedDiff > 15) {
-            console.log(`[地图旋转校正] 道路方向=${sectionBearing.toFixed(1)}°, 地图偏差=${normalizedDiff.toFixed(1)}°, 执行校正让道路竖直`);
-
-            // 执行校正：旋转地图让道路竖直（车头朝上）
-            NavRenderer.setHeadingUpMode(position, sectionBearing, true);
-
-            // 更新状态
-            mapRotationCorrected = true;
-            currentMapRotation = sectionBearing; // 更新记录的旋转角度
-        } else {
-            // 偏差<=15度，地图已对齐，重置标记
-            if (mapRotationCorrected) {
-                console.log('[地图旋转校正] 地图已对齐道路方向，重置标记');
-                mapRotationCorrected = false;
-            }
-        }
-    }
-
-    // 二次校验相关状态
-    let lastSecondaryCheckTime = 0;      // 上次二次校验时间
-    let secondaryCheckCooldown = 5000;   // 常规冷却时间5秒（优化性能与精度平衡）
-    let forceSecondaryCheck = false;     // 是否强制立即执行二次校验（偏离回归后）
+    // 实时校验相关状态
+    let forceSecondaryCheck = false;     // 是否强制立即执行校验（偏离回归后）
+    let lastAlignedBearing = null;       // 上次对齐的道路方向（用于平滑过渡）
 
     /**
-     * 二次校验：用不同的计算方式验证道路是否竖直显示
-     * 第一层用"当前点→转向点"，这里用"当前点→前方几个点"的局部方向
+     * 实时道路对齐校验：确保道路始终竖直显示，图标0度与道路对齐
+     * 每次GPS更新都执行，用"前一个点→后一个点"的连线方向实时校正地图旋转
      * @param {Array} position - 当前位置 [lng, lat]
      * @param {number} currentIndex - 当前吸附点索引
      */
@@ -2121,69 +2062,37 @@ const NavCore = (function() {
             if (isTurningPhase && turningPhaseEndTime > 0 && now > turningPhaseEndTime) {
                 isTurningPhase = false;
                 turningPhaseEndTime = 0;
-                console.log('[转弯校验] 转弯阶段已结束，恢复正常校验节奏');
+                console.log('[实时对齐] 转弯阶段已结束');
             }
 
-            // 检查剩余转向点数量
             const turningPoints = window.currentSegmentTurningPoints;
             const pointSet = window.currentSegmentPointSet;
-            let remainingTurnPoints = 0;
-            if (turningPoints && turningPoints.length > 0) {
-                for (let i = 0; i < turningPoints.length; i++) {
-                    if (turningPoints[i].pointIndex > currentIndex) {
-                        remainingTurnPoints++;
-                    }
-                }
-            }
-
-            // 检查是否需要执行校验
-            // 1. 转弯阶段：持续工作，忽略冷却时间
-            // 2. 强制校验（偏离回归后立即执行）
-            // 3. 剩余转向点少于4个：持续检测（最后路段加强校验）
-            // 4. 常规校验（5秒一次）
-            const shouldCheckDuringTurning = isTurningPhase;
-            const shouldForceCheck = forceSecondaryCheck;
-            const shouldCheckNearEnd = (remainingTurnPoints < 4);
-            const shouldNormalCheck = (now - lastSecondaryCheckTime >= secondaryCheckCooldown);
-
-            if (!shouldCheckDuringTurning && !shouldForceCheck && !shouldCheckNearEnd && !shouldNormalCheck) {
-                return;
-            }
-
-            // 更新校验时间（转弯阶段不更新冷却时间，避免影响常规检查节奏）
-            if (!shouldCheckDuringTurning) {
-                lastSecondaryCheckTime = now;
-            }
-
-            // 重置强制校验标志
-            if (forceSecondaryCheck) {
-                console.log('[二次校验] 偏离回归后立即执行校验');
-                forceSecondaryCheck = false;
-            }
-
-            // 转弯阶段或接近终点日志
-            if (shouldCheckDuringTurning) {
-                console.log('[二次校验] 转弯阶段，持续校验地图竖直（不计入冷却）');
-            } else if (shouldCheckNearEnd) {
-                console.log(`[二次校验] 剩余${remainingTurnPoints}个转向点，加强校验`);
-            }
-
             const map = NavRenderer.getMap();
 
             if (!pointSet || !map || currentIndex < 0 || currentIndex >= pointSet.length - 1) {
                 return;
             }
 
-            // 获取当前地图旋转角度（度）
-            const mapRotation = map.getRotation() || 0;
+            // 重置强制校验标志
+            if (forceSecondaryCheck) {
+                console.log('[实时对齐] 偏离回归后立即执行校验');
+                forceSecondaryCheck = false;
+            }
 
-            // 用不同的方式计算道路方向：当前点到前方3-5个点（局部路段方向）
-            const lookAhead = Math.min(5, pointSet.length - 1 - currentIndex);
-            if (lookAhead < 2) return; // 点不够，跳过校验
+            // 获取当前地图旋转角度（弧度），转换为度
+            const mapRotationRad = map.getRotation() || 0;
+            const mapRotation = mapRotationRad * 180 / Math.PI;
 
-            const nextIndex = currentIndex + lookAhead;
+            // 计算局部道路方向：前一个点→后一个点的连线
+            // 这样更精准地反映当前位置的道路方向
+            const prevIndex = Math.max(0, currentIndex - 1);
+            const nextIndex = Math.min(pointSet.length - 1, currentIndex + 1);
+
+            // 如果前后点相同（边界情况），跳过校验
+            if (prevIndex === nextIndex) return;
+
             const localBearing = calculateBearing(
-                pointSet[currentIndex].position,
+                pointSet[prevIndex].position,
                 pointSet[nextIndex].position
             );
 
@@ -2192,7 +2101,7 @@ const NavCore = (function() {
             let screenAngle = localBearing - mapRotation;
             screenAngle = ((screenAngle % 360) + 360) % 360;
 
-            // 检查是否接近竖直（0°或180°表示南北走向）
+            // 检查是否接近竖直（0°或180°表示屏幕上竖直）
             const deviationFromNorth = Math.min(
                 Math.abs(screenAngle),
                 Math.abs(screenAngle - 360)
@@ -2200,17 +2109,52 @@ const NavCore = (function() {
             const deviationFromSouth = Math.abs(screenAngle - 180);
             const deviationFromVertical = Math.min(deviationFromNorth, deviationFromSouth);
 
-            // 如果偏差超过20度，说明道路偏离竖直，需要校正
-            // 使用20度阈值（优化后的阈值，提高校验灵敏度）
-            if (deviationFromVertical > 20) {
-                console.warn(`[二次校验] 道路未竖直！局部方向=${localBearing.toFixed(1)}°, 地图旋转=${mapRotation.toFixed(1)}°, 屏幕角度=${screenAngle.toFixed(1)}°, 偏差=${deviationFromVertical.toFixed(1)}°`);
+            // 【核心改动】降低阈值到5度，确保道路始终精准竖直
+            // 这样图标保持0度就能和道路完美对齐
+            const alignmentThreshold = 5;
 
-                // 强制校正：旋转地图让道路竖直
-                NavRenderer.setHeadingUpMode(position, localBearing, true);
-                console.log(`[二次校验] 强制校正地图旋转: ${localBearing.toFixed(1)}°`);
+            if (deviationFromVertical > alignmentThreshold) {
+                // 目标：让道路竖直显示（屏幕角度为0或180）
+                // 需要调整地图旋转角度，使 screenAngle = localBearing - mapRotation = 0 或 180
+                // 因此：mapRotation = localBearing 或 localBearing - 180
+
+                // 选择更接近当前旋转角度的目标（避免大幅度旋转）
+                const targetRotation1 = localBearing;
+                const targetRotation2 = localBearing - 180;
+
+                // 归一化到 -180 ~ 180
+                const normalize = (angle) => {
+                    angle = angle % 360;
+                    if (angle > 180) angle -= 360;
+                    if (angle < -180) angle += 360;
+                    return angle;
+                };
+
+                const normalizedTarget1 = normalize(targetRotation1);
+                const normalizedTarget2 = normalize(targetRotation2);
+                const normalizedCurrent = normalize(mapRotation);
+
+                const diff1 = Math.abs(normalize(normalizedTarget1 - normalizedCurrent));
+                const diff2 = Math.abs(normalize(normalizedTarget2 - normalizedCurrent));
+
+                const targetBearing = diff1 <= diff2 ? normalizedTarget1 : normalizedTarget2;
+
+                // 平滑过渡：只在偏差较小且变化极小时跳过，避免抖动
+                if (lastAlignedBearing !== null && deviationFromVertical < alignmentThreshold * 1.5) {
+                    const bearingChange = Math.abs(normalize(targetBearing - lastAlignedBearing));
+                    if (bearingChange < 1) {
+                        return; // 已经接近对齐且变化极小，跳过
+                    }
+                }
+
+                console.log(`[实时对齐] 道路方向=${localBearing.toFixed(1)}°, 地图旋转=${mapRotation.toFixed(1)}°, 屏幕角度=${screenAngle.toFixed(1)}°, 偏差=${deviationFromVertical.toFixed(1)}°, 校正到=${targetBearing.toFixed(1)}°`);
+
+                // 执行校正：setHeadingUpMode会将地图旋转到指定角度
+                NavRenderer.setHeadingUpMode(position, targetBearing, true);
+                lastAlignedBearing = targetBearing;
             }
         } catch (e) {
-            console.error('[二次校验] 执行失败:', e);
+            console.error('[实时对齐] 执行失败:', e);
         }
     }
 
@@ -2275,6 +2219,151 @@ const NavCore = (function() {
             clearInterval(deviationCheckIntervalId);
             deviationCheckIntervalId = null;
             console.log('[偏离检测] 停止GPS加速检测，恢复正常频率');
+        }
+    }
+
+    /**
+     * 将GPS位置吸附到KML路网上（用于偏离轨迹显示）
+     * @param {Array} position - GPS位置 [lng, lat]
+     * @returns {Array|null} 吸附后的位置 [lng, lat]，如果无法吸附则返回null
+     */
+    function snapToKMLNetwork(position) {
+        try {
+            // 检查是否有KML路线吸附功能
+            if (typeof findNearestKMLSegment !== 'function') {
+                return null;
+            }
+
+            // 查找最近的KML线段
+            const nearest = findNearestKMLSegment(position);
+            
+            if (!nearest || !nearest.projectionPoint) {
+                return null;
+            }
+
+            // 检查距离是否在吸附范围内（使用常规吸附阈值）
+            if (nearest.distance > SNAP_THRESHOLD_NORMAL) {
+                console.log(`[偏离吸附] 距离KML路网${nearest.distance.toFixed(1)}米，超出吸附范围${SNAP_THRESHOLD_NORMAL}米`);
+                return null;
+            }
+
+            // 返回投影点位置
+            const projPoint = nearest.projectionPoint;
+            const snappedPos = [projPoint.lng, projPoint.lat];
+            
+            console.log(`[偏离吸附] 吸附到KML路网，距离${nearest.distance.toFixed(1)}米`);
+            return snappedPos;
+        } catch (e) {
+            console.error('[偏离吸附] 执行失败:', e);
+            return null;
+        }
+    }
+
+    /**
+     * 检测当前位置是否在KML其他路线上，如果是则重新规划到当前段终点
+     * @param {Array} position - 当前GPS位置 [lng, lat]
+     * @returns {boolean} 是否成功重新规划
+     */
+    function checkAndReplanFromKML(position) {
+        try {
+            // 检查是否有KML路线规划功能
+            if (typeof planKMLRoute !== 'function' || typeof resetKMLGraph !== 'function') {
+                console.log('[偏航重规划] KML路线规划功能不可用');
+                return false;
+            }
+
+            // 获取当前段的终点
+            const currentSegment = segmentRanges[currentSegmentIndex];
+            if (!currentSegment) {
+                console.log('[偏航重规划] 无法获取当前段信息');
+                return false;
+            }
+
+            const fullPointSet = window.navigationPointSet;
+            if (!fullPointSet || fullPointSet.length === 0) {
+                console.log('[偏航重规划] 点集不存在');
+                return false;
+            }
+
+            // 获取当前段终点位置
+            const segmentEndPoint = fullPointSet[currentSegment.end];
+            if (!segmentEndPoint) {
+                console.log('[偏航重规划] 无法获取段终点');
+                return false;
+            }
+
+            const endPos = segmentEndPoint.position;
+            const endLng = Array.isArray(endPos) ? endPos[0] : endPos.lng;
+            const endLat = Array.isArray(endPos) ? endPos[1] : endPos.lat;
+
+            console.log('[偏航重规划] 尝试从当前位置重新规划到段终点:', {
+                当前位置: position,
+                段终点: [endLng, endLat],
+                当前段: currentSegmentIndex,
+                段名称: currentSegment.name
+            });
+
+            // 重置KML图，准备重新规划
+            resetKMLGraph();
+
+            // 尝试规划新路线
+            const newRoute = planKMLRoute(position, [endLng, endLat]);
+
+            if (!newRoute || !newRoute.path || newRoute.path.length < 2) {
+                console.log('[偏航重规划] 无法规划新路线（可能不在KML路网上）');
+                return false;
+            }
+
+            console.log('[偏航重规划] 新路线规划成功:', {
+                路径点数: newRoute.path.length,
+                总距离: newRoute.distance ? newRoute.distance.toFixed(1) + '米' : '未知'
+            });
+
+            // 更新当前段的路线
+            const newPath = newRoute.path;
+
+            // 重新生成点集（只更新当前段）
+            const newPointSet = resamplePathWithOriginalPoints(newPath, 3);
+            window.currentSegmentPointSet = newPointSet.map((point, idx) => ({
+                ...point,
+                index: idx,
+                globalIndex: currentSegment.start + idx
+            }));
+
+            // 重新计算转向点
+            const newTurningPoints = detectTurningPoints(window.currentSegmentPointSet, 30);
+            window.currentSegmentTurningPoints = newTurningPoints;
+
+            console.log('[偏航重规划] 新点集生成:', {
+                点数: window.currentSegmentPointSet.length,
+                转向点数: newTurningPoints.length
+            });
+
+            // 重新绘制路线
+            NavRenderer.drawRoute(newPath);
+
+            // 重置吸附状态
+            currentSnappedIndex = 0;
+            lastSnappedIndex = -1;
+            lastTurningPointIndex = -1;
+            nextTurningPointIndex = -1;
+            hasPrompted1_4 = false;
+            hasPromptedBefore = false;
+
+            // 更新用户位置到新路线起点
+            NavRenderer.updateUserMarker(position, 0, false, true);
+            NavRenderer.setLastSnappedPosition(newPointSet[0].position);
+
+            // 居中地图并对齐道路
+            if (newPointSet.length >= 2) {
+                const bearing = calculateBearing(newPointSet[0].position, newPointSet[1].position);
+                NavRenderer.setHeadingUpMode(position, bearing, true);
+            }
+
+            return true;
+        } catch (e) {
+            console.error('[偏航重规划] 执行失败:', e);
+            return false;
         }
     }
 
@@ -2398,6 +2487,7 @@ const NavCore = (function() {
                 if (deviationStartTime !== 0) {
                     console.log('[点集吸附] 重新吸附成功，重置偏离计时器');
                     deviationStartTime = 0;
+                    hasAnnouncedDeviation = false; // 重置偏离播报标志
                     // 停止GPS加速检测
                     stopDeviationFastCheck();
                 }
@@ -2428,11 +2518,7 @@ const NavCore = (function() {
                         hasPromptedBefore = false;
                         console.log('[NavCore] 偏离后重新接入，已重置转向点提示状态');
 
-                        // 重置地图旋转校正标记，确保重新接入后立即检查并校正
-                        mapRotationCorrected = false;
-                        console.log('[NavCore] 重新接入路网，已重置地图旋转校正标记');
-
-                        // 设置强制二次校验标志，偏离回归后立即执行
+                        // 设置强制校验标志，偏离回归后立即执行实时对齐
                         forceSecondaryCheck = true;
 
                         // 播报"已回到规划路线"
@@ -2518,11 +2604,9 @@ const NavCore = (function() {
                     ? (map.getRotation() || 0) 
                     : 0;
 
-                // 修改车辆图标旋转角度计算，让图标始终指北，不考虑地图旋转
-                // 这样可以避免图标与路网方向有偏差
-                displayHeading = 0; // 始终指北
-
-                console.log(`[车辆角度] 道路方向=${roadBearing.toFixed(1)}°, 地图旋转=${(mapRotation * 180 / Math.PI).toFixed(1)}°, 图标角度=${displayHeading.toFixed(1)}°(固定指北)`);
+                // 车辆图标始终保持0度（朝上），通过实时校正地图旋转让道路竖直
+                // 这样图标0度就自然和道路方向对齐
+                displayHeading = 0;
 
                 // 【关键优化】检查是否到达转向点的前一个点
                 const turningCheck = checkTurningPoint(currentSnappedIndex);
@@ -2535,12 +2619,8 @@ const NavCore = (function() {
                     NavRenderer.setCenterOnly(displayPosition, true);
                 }
 
-                // 【新增】地图旋转校验机制：确保道路竖直显示
-                // 在原有转向点旋转机制的基础上，添加一层保险校验
-                checkAndCorrectMapRotation(displayPosition, currentSnappedIndex);
-
-                // 【二次校验】用不同的计算方式验证道路是否竖直
-                // 第一层用"当前点→转向点"，二次校验用"当前点→前方几个点"
+                // 【实时对齐】用"前一个点→后一个点"的方向校正地图旋转
+                // 确保道路始终竖直显示，图标0度与道路对齐
                 secondaryVerticalCheck(displayPosition, currentSnappedIndex);
             } else {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
@@ -2580,35 +2660,75 @@ const NavCore = (function() {
                 // 停止GPS加速检测（已确认为真偏离，不需要继续加速检测）
                 stopDeviationFastCheck();
 
-                // 获取最后吸附位置作为偏离起点
-                const lastSnappedPos = NavRenderer.getLastSnappedPosition();
+                // 【偏航重新规划】只在确认偏离后持续检测是否在KML其他路线上
+                // 只有真正进入偏离状态后才尝试重新规划
+                let replanResult = false;
+                if (NavRenderer.isDeviated()) {
+                    replanResult = checkAndReplanFromKML(position);
+                    if (replanResult) {
+                        console.log('[偏航重规划] 成功从KML其他路线重新规划');
+                        // 重新规划成功，重置偏离状态
+                        deviationStartTime = 0;
+                        hasAnnouncedDeviation = false;
+                        NavRenderer.endDeviation(position, true);
 
-                if (lastSnappedPos) {
-                    // 启动偏离轨迹（如果尚未启动）
-                    if (!NavRenderer.isDeviated()) {
-                        NavRenderer.startDeviation(lastSnappedPos);
-                        console.log('[NavCore] 开始偏离轨迹，起点:', lastSnappedPos);
+                        // 播报重新规划
+                        NavTTS.speak('已重新规划路线', { force: true });
+
+                        // 更新显示位置
+                        displayPosition = position;
+                        displayHeading = 0;
+
+                        // 重新规划成功，后续正常更新标记
                     }
-
-                    // 更新偏离轨迹（实时绘制黄色线）
-                    NavRenderer.updateDeviationLine(position);
                 }
 
-                // 显示GPS原始位置和方向
-                displayPosition = position;
-                displayHeading = gpsHeading;
+                if (!replanResult) {
+                    // 未能重新规划，继续偏离状态
+                    // 获取最后吸附位置作为偏离起点
+                    const lastSnappedPos = NavRenderer.getLastSnappedPosition();
 
-                // 地图跟随GPS位置移动
-                NavRenderer.setCenterOnly(position, true);
+                    if (lastSnappedPos) {
+                        // 启动偏离轨迹（如果尚未启动）
+                        if (!NavRenderer.isDeviated()) {
+                            NavRenderer.startDeviation(lastSnappedPos);
+                            console.log('[NavCore] 开始偏离轨迹，起点:', lastSnappedPos);
+                            
+                            // 首次进入偏离状态时播报
+                            if (!hasAnnouncedDeviation) {
+                                NavTTS.speak('您已偏离规划路线', { force: true });
+                                hasAnnouncedDeviation = true;
+                            }
+                        }
 
-                // 更新导航提示：提示偏离路线
-                if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
-                    NavUI.updateNavigationTip({
-                        type: 'deviation',
-                        action: '偏离路线',
-                        distance: 0,
-                        message: '您已偏离规划路线'
-                    });
+                        // 【偏离轨迹吸附】尝试将GPS位置吸附到KML路网上
+                        const snappedDeviationPos = snapToKMLNetwork(position);
+                        const deviationDisplayPos = snappedDeviationPos || position;
+                        
+                        // 更新偏离轨迹（使用吸附后的位置绘制黄色线）
+                        NavRenderer.updateDeviationLine(deviationDisplayPos);
+                        
+                        // 显示位置（优先使用吸附位置）
+                        displayPosition = deviationDisplayPos;
+                        displayHeading = gpsHeading;
+                    } else {
+                        // 没有最后吸附位置，使用GPS原始位置
+                        displayPosition = position;
+                        displayHeading = gpsHeading;
+                    }
+
+                    // 地图跟随显示位置移动
+                    NavRenderer.setCenterOnly(displayPosition, true);
+
+                    // 更新导航提示：提示偏离路线
+                    if (typeof NavUI !== 'undefined' && NavUI.updateNavigationTip) {
+                        NavUI.updateNavigationTip({
+                            type: 'deviation',
+                            action: '偏离路线',
+                            distance: 0,
+                            message: '您已偏离规划路线'
+                        });
+                    }
                 }
             }
 
