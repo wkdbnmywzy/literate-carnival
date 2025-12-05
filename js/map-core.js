@@ -183,8 +183,10 @@ function getCurrentLocation() {
                 console.warn('保存当前位置到sessionStorage失败:', e);
             }
 
-            // 更新地图中心和缩放级别
-            map.setZoomAndCenter(15, [lng, lat]);
+            // 更新地图中心和缩放级别（除非禁用了自动聚焦）
+            if (!disableAutoCenter) {
+                map.setZoomAndCenter(15, [lng, lat]);
+            }
 
             // 强制刷新地图
             setTimeout(function() {
@@ -239,6 +241,9 @@ function clearMarkers() {
 let dynamicAngleOffset = 0; // 0 或 180
 let calibrationState = { count0: 0, count180: 0, locked: false };
 
+// 是否禁止自动聚焦到用户位置（加载KML/API数据后设为true）
+let disableAutoCenter = false;
+
 // 统一应用朝向到标记：考虑地图旋转与角度偏移
 function applyHeadingToMarker(rawHeading) {
     if (!selfMarker || rawHeading === null || rawHeading === undefined || isNaN(rawHeading)) return;
@@ -273,196 +278,6 @@ function applyHeadingToMarker(rawHeading) {
     } catch (err) {
         console.error('应用朝向到标记失败:', err);
     }
-}
-
-// ====== 首页地图：实时定位与箭头随手机方向旋转 ======
-function startRealtimeLocationTracking() {
-    if (isRealtimeLocating) return;
-
-    console.log('启动浏览器原生实时定位');
-
-    // 使用浏览器原生定位
-    if (!('geolocation' in navigator)) {
-        console.error('浏览器不支持定位');
-        alert('当前浏览器不支持定位功能');
-        return;
-    }
-
-    const options = {
-        enableHighAccuracy: true,
-        timeout: 15000,
-        maximumAge: 0
-    };
-
-    // 开始持续监听位置变化
-    const watchId = navigator.geolocation.watchPosition(
-        function(position) {
-            console.log('浏览器定位成功:', position);
-            console.log('定位精度(米):', position.coords.accuracy);
-
-            let lng = position.coords.longitude;
-            let lat = position.coords.latitude;
-            console.log('原始坐标(WGS84):', lng, lat);
-
-            // 手动转换WGS84到GCJ02（高德坐标系）
-            const converted = wgs84ToGcj02(lng, lat);
-            lng = converted[0];
-            lat = converted[1];
-            console.log('转换后坐标(GCJ02):', lng, lat);
-
-            const curr = [lng, lat];
-            currentPosition = curr;
-
-            // 保存当前位置到sessionStorage供导航页面使用
-            try {
-                sessionStorage.setItem('currentPosition', JSON.stringify(currentPosition));
-                console.log('已保存当前位置到sessionStorage:', currentPosition);
-            } catch (e) {
-                console.warn('保存当前位置到sessionStorage失败:', e);
-            }
-
-            // 开启实时定位时，移除一次性初始定位标记，避免重复
-            if (initialLocationMarker) {
-                try { map.remove(initialLocationMarker); } catch (e) {}
-                initialLocationMarker = null;
-            }
-
-            // 初始化或更新自身标记
-            if (!selfMarker) {
-                const iconCfg = MapConfig.markerStyles.headingLocation || {};
-                var w = (iconCfg.size && iconCfg.size.w) ? iconCfg.size.w : 36;
-                var h = (iconCfg.size && iconCfg.size.h) ? iconCfg.size.h : 36;
-
-                let iconImage = iconCfg.icon;
-                // 如果开启箭头模式或 PNG 未配置，则改用 SVG 箭头，以确保旋转效果明显
-                if (iconCfg.useSvgArrow === true || !iconImage) {
-                    iconImage = createHeadingArrowDataUrl('#007bff');
-                }
-
-                const icon = new AMap.Icon({
-                    size: new AMap.Size(w, h),
-                    image: iconImage,
-                    imageSize: new AMap.Size(w, h)
-                });
-                selfMarker = new AMap.Marker({
-                    position: curr,
-                    icon: icon,
-                    offset: new AMap.Pixel(-(w/2), -(h/2)),
-                    zIndex: 1000,
-                    angle: 0,
-                    map: map
-                });
-            } else {
-                selfMarker.setPosition(curr);
-            }
-
-            // 处理方向角（从浏览器API获取）
-            let heading = null;
-            if (position.coords.heading !== undefined && position.coords.heading !== null && !isNaN(position.coords.heading)) {
-                heading = position.coords.heading;
-                lastDeviceHeadingIndex = position.coords.heading;
-                console.log('使用浏览器返回的heading:', position.coords.heading);
-            } else {
-                // 如果没有方向角，尝试使用设备方向或根据移动计算
-                if (lastDeviceHeadingIndex !== null) {
-                    heading = lastDeviceHeadingIndex;
-                    console.log('使用设备方向角:', lastDeviceHeadingIndex);
-                } else if (lastGpsPosIndex) {
-                    const bearing = calcBearingSimple(lastGpsPosIndex, curr);
-                    console.log('根据GPS位置计算方位角:', bearing, '从', lastGpsPosIndex, '到', curr);
-                    if (!isNaN(bearing)) {
-                        heading = bearing;
-                    }
-                }
-            }
-
-            // 应用朝向角度（图标固定指向真实世界的手机头部方向）
-            // 使用绝对角度，让图标始终指向真北参考系下的手机朝向
-            // 当地图旋转时，图标会自动随地图一起旋转，保持指向真实方向
-            if (heading !== null) {
-                try {
-                    // 获取地图当前旋转角度
-                    const mapRotation = map.getRotation() || 0;
-                    
-                    // 如果地图没有旋转，图标随设备方向旋转
-                    // 如果地图旋转了，图标要减去地图旋转的角度，这样图标就会和地图一起旋转
-                    const finalAngle = heading - mapRotation;
-                    
-                    if (typeof selfMarker.setAngle === 'function') selfMarker.setAngle(finalAngle);
-                    else if (typeof selfMarker.setRotation === 'function') selfMarker.setRotation(finalAngle);
-                } catch (err) {
-                    console.error('设置标记角度失败:', err);
-                }
-            }
-
-            lastGpsPosIndex = curr;
-
-            // 首次进入或用户点击定位后，自动居中
-            if (!isRealtimeLocating) {
-                map.setZoomAndCenter(17, curr);
-            } else {
-                // 跟随中心
-                map.setCenter(curr);
-            }
-
-            // 更新输入框
-            const startInput = document.getElementById('start-location');
-            if (startInput && (!startInput.value || startInput.value === '北京市')) {
-                startInput.value = '我的位置';
-            }
-
-            // 启动设备方向监听（用于更精确的箭头旋转）
-            tryStartDeviceOrientationIndex();
-        },
-        function(error) {
-            console.error('浏览器定位失败:', error);
-            alert('无法获取实时定位: ' + error.message);
-            stopRealtimeLocationTracking();
-        },
-        options
-    );
-
-    // 保存watchId，用于停止定位
-    window.browserGeolocationWatchId = watchId;
-
-    isRealtimeLocating = true;
-
-    // 在用户手势触发时优先尝试开启设备方向监听，提升 iOS 权限通过概率
-    tryStartDeviceOrientationIndex();
-
-    // 更新定位按钮UI
-    try {
-        const locateBtn = document.getElementById('locate-btn');
-        if (locateBtn) {
-            locateBtn.classList.add('active');
-            locateBtn.title = '定位到当前位置';
-        }
-    } catch (e) {}
-}
-
-function stopRealtimeLocationTracking() {
-    try {
-        // 停止浏览器定位
-        if (window.browserGeolocationWatchId !== undefined && window.browserGeolocationWatchId !== null) {
-            navigator.geolocation.clearWatch(window.browserGeolocationWatchId);
-            window.browserGeolocationWatchId = null;
-        }
-    } catch (e) {
-        console.error('停止浏览器定位失败:', e);
-    }
-
-    isRealtimeLocating = false;
-    lastGpsPosIndex = null;
-    // 不强制移除标记，保留当前位置；如需清除可在此移除
-    tryStopDeviceOrientationIndex();
-    // 更新定位按钮UI
-    try {
-        const locateBtn = document.getElementById('locate-btn');
-        if (locateBtn) {
-            locateBtn.classList.remove('active');
-            locateBtn.title = '定位到当前位置';
-        }
-    } catch (e) {}
 }
 
 function clearMarkers() {
@@ -582,12 +397,14 @@ function startRealtimeLocationTracking() {
 
             lastGpsPosIndex = curr;
 
-            // 首次进入或用户点击定位后，自动居中
-            if (!isRealtimeLocating) {
-                map.setZoomAndCenter(17, curr);
-            } else {
-                // 跟随中心
-                map.setCenter(curr);
+            // 首次进入或用户点击定位后，自动居中（除非禁用了自动聚焦）
+            if (!disableAutoCenter) {
+                if (!isRealtimeLocating) {
+                    map.setZoomAndCenter(17, curr);
+                } else {
+                    // 跟随中心
+                    map.setCenter(curr);
+                }
             }
 
             // 更新输入框

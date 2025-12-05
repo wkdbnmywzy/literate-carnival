@@ -279,13 +279,81 @@ function handleAccountLogin(e) {
         return;
     }
 
-    // 直接校验并进入下一页（无延迟）
-    const result = validateAccountLogin(username, password);
-    if (result.success) {
-        handleLoginSuccess(result.user, 'account');
-    } else {
-        hideLoadingScreen();
-        handleLoginFailure(accountErrorMessage, result.message);
+    // 显示加载
+    showLoadingScreen();
+
+    // 调用真实登录API
+    loginWithAPI(username, password)
+        .then(result => {
+            if (result.success) {
+                handleLoginSuccess(result.user, 'account');
+            } else {
+                hideLoadingScreen();
+                handleLoginFailure(accountErrorMessage, result.message);
+            }
+        })
+        .catch(error => {
+            hideLoadingScreen();
+            console.error('登录失败:', error);
+            handleLoginFailure(accountErrorMessage, '登录失败，请稍后重试');
+        });
+}
+
+/**
+ * 调用真实登录API
+ * @param {string} username - 用户名
+ * @param {string} password - 密码
+ * @returns {Promise<{success: boolean, user?: object, message?: string}>}
+ */
+async function loginWithAPI(username, password) {
+    try {
+        const response = await fetch('http://115.159.67.12:8081/api/v1/auth/login', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password
+            })
+        });
+
+        const data = await response.json();
+
+        console.log('[登录] API返回数据:', data);
+
+        if (response.ok && data.code === 200) {
+            // 登录成功，保存token
+            const token = data.data?.access_token || data.data?.token || data.data;
+            if (token) {
+                sessionStorage.setItem('authToken', token);
+                console.log('[登录] Token已保存:', token.substring(0, 20) + '...');
+            } else {
+                console.error('[登录] 未找到token，data.data:', data.data);
+            }
+
+            // 返回用户信息
+            return {
+                success: true,
+                user: {
+                    username: username,
+                    role: data.data?.user?.role || 'user',
+                    ...data.data?.user
+                }
+            };
+        } else {
+            // 登录失败
+            return {
+                success: false,
+                message: data.message || '用户名或密码错误'
+            };
+        }
+    } catch (error) {
+        console.error('[登录] API调用失败:', error);
+        return {
+            success: false,
+            message: '网络错误，请检查连接后重试'
+        };
     }
 }
 
@@ -331,7 +399,10 @@ function handleLoginSuccess(user, loginType) {
 
     // 账号密码登录：立即进入项目选择页（无延迟）
     if (loginType === 'account') {
-        showProjectSelection();
+        hideLoadingScreen(); // 先隐藏加载界面
+        setTimeout(() => {
+            showProjectSelection();
+        }, 100);
         return;
     }
 
@@ -347,14 +418,18 @@ function clearHistoryStorage() {
     try {
         console.log('清除历史存储数据...');
 
-        // 清除sessionStorage中的历史数据
+        // 清除sessionStorage中的历史数据（但保留项目选择）
         const keysToRemove = [
             'kmlData',              // KML数据
+            'kmlRawData',           // KML原始数据
+            'kmlFileName',          // KML文件名
             'navigationRoute',      // 导航路线数据
             'searchHistory',        // 搜索历史
-            'projectSelection',     // 项目选择
-            'vehicleInfo'           // 车辆信息
+            'vehicleInfo',          // 车辆信息
+            'mapState',             // ⭐ 地图状态（重要：清除旧的地图状态）
+            'selectedLocation'      // 选中的位置
         ];
+        // 注意：不清除 projectSelection，因为马上要用
 
         keysToRemove.forEach(key => {
             sessionStorage.removeItem(key);

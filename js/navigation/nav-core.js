@@ -61,6 +61,7 @@ const NavCore = (function() {
     let deviationStartTime = 0;      // 开始偏离的时间戳
     let hasAnnouncedDeviation = false; // 是否已播报偏离
     let deviationCheckIntervalId = null; // 偏离检测期间的加速定时器
+    let lastReplanTime = 0;          // 上次重新规划的时间戳（用于防抖）
 
     // 转弯期间校验控制
     let isTurningPhase = false;      // 是否处于转弯阶段
@@ -2056,6 +2057,12 @@ const NavCore = (function() {
      */
     function secondaryVerticalCheck(position, currentIndex) {
         try {
+            // 【优化】转弯期间禁用实时对齐，避免与转向点旋转冲突
+            if (isTurningPhase) {
+                console.log('[实时对齐] 转弯期间，跳过实时对齐');
+                return;
+            }
+
             const now = Date.now();
 
             // 检查转弯阶段是否已结束
@@ -2660,27 +2667,55 @@ const NavCore = (function() {
                 // 停止GPS加速检测（已确认为真偏离，不需要继续加速检测）
                 stopDeviationFastCheck();
 
-                // 【偏航重新规划】只在确认偏离后持续检测是否在KML其他路线上
-                // 只有真正进入偏离状态后才尝试重新规划
+                // 【优化方案】偏离后持续尝试吸附KML全路网并重新规划
                 let replanResult = false;
-                if (NavRenderer.isDeviated()) {
-                    replanResult = checkAndReplanFromKML(position);
-                    if (replanResult) {
-                        console.log('[偏航重规划] 成功从KML其他路线重新规划');
-                        // 重新规划成功，重置偏离状态
-                        deviationStartTime = 0;
-                        hasAnnouncedDeviation = false;
-                        NavRenderer.endDeviation(position, true);
 
-                        // 播报重新规划
-                        NavTTS.speak('已重新规划路线', { force: true });
+                // 1. 先尝试吸附KML全路网（包括规划路线和规划外的路线）
+                const kmlSnapped = snapToKMLNetwork(position);
 
-                        // 更新显示位置
-                        displayPosition = position;
-                        displayHeading = 0;
+                if (kmlSnapped) {
+                    console.log('[KML吸附] 成功吸附到KML路网:', kmlSnapped);
 
-                        // 重新规划成功，后续正常更新标记
+                    // 2. 吸附成功，检查是否需要重新规划（带2秒防抖）
+                    if (now - lastReplanTime > 2000) {
+                        console.log('[KML吸附] 开始重新规划到当前段终点...');
+                        replanResult = checkAndReplanFromKML(kmlSnapped);
+                        lastReplanTime = now;
+
+                        if (replanResult) {
+                            console.log('[KML吸附] ✓ 重新规划成功');
+                            // 重新规划成功，重置偏离状态
+                            deviationStartTime = 0;
+                            hasAnnouncedDeviation = false;
+                            NavRenderer.endDeviation(kmlSnapped, true);
+
+                            // 播报重新规划
+                            NavTTS.speak('已重新规划路线', { force: true });
+
+                            // 更新显示位置
+                            displayPosition = kmlSnapped;
+                            displayHeading = 0;
+
+                            // 【关键】重新规划后更新导航提示
+                            // 由于 checkAndReplanFromKML 已重置 currentSnappedIndex = 0
+                            // 这里需要更新导航提示到新路线的起点
+                            updateNavigationGuidance(0);
+
+                            console.log('[KML吸附] 导航提示已更新到新路线');
+                            // 注意：底部目的地信息栏始终显示最终终点，无需更新
+
+                            // 重新规划成功，后续正常更新标记
+                        } else {
+                            console.log('[KML吸附] × 重新规划失败，继续偏离状态');
+                        }
+                    } else {
+                        console.log('[KML吸附] 跳过重新规划（距上次<2秒，防抖中）');
+                        // 虽然跳过重规划，但仍使用吸附位置显示
+                        displayPosition = kmlSnapped;
+                        displayHeading = gpsHeading;
                     }
+                } else {
+                    console.log('[KML吸附] 无法吸附到KML路网，继续显示偏离轨迹');
                 }
 
                 if (!replanResult) {

@@ -713,7 +713,7 @@ function displayKMLFeatures(features, fileName) {
 
     // 按顺序渲染：面（最下层）→ 线（中间层）→ 点（最上层）
 
-    // 1. 先显示面（大面积的先渲染，zIndex递增）
+    // 1. 先显示面（使用API返回的z_index，或按面积排序）
     polygonsWithArea.forEach((feature, index) => {
         const featureCoordinates = feature.geometry.coordinates;
         allCoordinates.push(...featureCoordinates);
@@ -721,24 +721,39 @@ function displayKMLFeatures(features, fileName) {
         const polyStyle = feature.geometry.style || {
             fillColor: MapConfig.routeStyles.polygon.fillColor,
             strokeColor: MapConfig.routeStyles.polygon.strokeColor,
-            strokeWidth: MapConfig.routeStyles.polygon.strokeWeight
+            strokeWeight: MapConfig.routeStyles.polygon.strokeWeight
         };
+
+        // 使用API返回的z_index，如果没有则按面积排序（大面积在下）
+        const featureZIndex = (feature.properties && feature.properties.zIndex) 
+            ? feature.properties.zIndex 
+            : (10 + index);
+
+        // 调试：打印面的样式
+        console.log(`[渲染面] ${feature.name}:`, {
+            fillColor: polyStyle.fillColor,
+            fillOpacity: polyStyle.fillOpacity,
+            strokeColor: polyStyle.strokeColor,
+            strokeWeight: polyStyle.strokeWeight,
+            zIndex: featureZIndex
+        });
 
         const marker = new AMap.Polygon({
             path: feature.geometry.coordinates,
             strokeColor: polyStyle.strokeColor || 'transparent',
-            strokeWeight: 0,  // 不显示描边
-            strokeOpacity: 0,  // 完全透明
+            strokeWeight: polyStyle.strokeWeight || 0,
+            strokeOpacity: (polyStyle.strokeColor && polyStyle.strokeColor !== 'transparent') ? 1 : 0,
             fillColor: polyStyle.fillColor,
             fillOpacity: polyStyle.fillOpacity || 0.7,
-            zIndex: 10 + index,  // 大面积的zIndex较小，显示在底层
+            zIndex: featureZIndex,
             map: map
         });
 
         marker.setExtData({
             name: feature.name,
             type: feature.type,
-            description: feature.description
+            description: feature.description,
+            properties: feature.properties || {}
         });
 
         marker.on('click', function() {
@@ -753,6 +768,11 @@ function displayKMLFeatures(features, fileName) {
             // 计算面的中心点
             const center = calculatePolygonCenter(feature.geometry.coordinates);
             
+            // 使用API返回的文字样式
+            const textColor = (feature.properties && feature.properties.text_color) || '#c8c8c8';
+            const textSize = (feature.properties && feature.properties.text_size) || 10;
+            const textFrameColor = (feature.properties && feature.properties.text_frame_color) || '#FFFFFF';
+            
             // 创建文本标记
             const textMarker = new AMap.Text({
                 text: feature.name,
@@ -761,14 +781,14 @@ function displayKMLFeatures(features, fileName) {
                 style: {
                     'background-color': 'transparent',
                     'border': 'none',
-                    'color': '#c8c8c8',
-                    'font-size': '10px',
+                    'color': textColor,
+                    'font-size': textSize + 'px',
                     'font-weight': 'normal',
                     'text-align': 'center',
                     'padding': '0',
-                    'text-shadow': '-1px -1px 0 #FFFFFF, 1px -1px 0 #FFFFFF, -1px 1px 0 #FFFFFF, 1px 1px 0 #FFFFFF'
+                    'text-shadow': `-1px -1px 0 ${textFrameColor}, 1px -1px 0 ${textFrameColor}, -1px 1px 0 ${textFrameColor}, 1px 1px 0 ${textFrameColor}`
                 },
-                zIndex: 11,
+                zIndex: featureZIndex + 1,
                 map: map
             });
 
@@ -801,13 +821,17 @@ function displayKMLFeatures(features, fileName) {
 
         allCoordinates.push(...featureCoordinates);
 
+        // 使用API返回的线样式
+        const lineStyle = feature.geometry.style || {};
+        const lineZIndex = (feature.properties && feature.properties.zIndex) || 50;
+
         // 创建线要素但不添加到地图上（首页隐藏路网）
         const marker = new AMap.Polyline({
             path: validCoords,
-            strokeColor: (feature.geometry.style && feature.geometry.style.color) || MapConfig.routeStyles.polyline.strokeColor,
-            strokeWeight: (feature.geometry.style && feature.geometry.style.width) || MapConfig.routeStyles.polyline.strokeWeight,
-            strokeOpacity: (feature.geometry.style && feature.geometry.style.opacity) || 1,
-            zIndex: 50
+            strokeColor: lineStyle.strokeColor || MapConfig.routeStyles.polyline.strokeColor,
+            strokeWeight: lineStyle.strokeWeight || MapConfig.routeStyles.polyline.strokeWeight,
+            strokeOpacity: lineStyle.strokeOpacity || 1,
+            zIndex: lineZIndex
             // 不添加 map: map，这样线要素不会显示在首页地图上
         });
 
@@ -836,7 +860,7 @@ function displayKMLFeatures(features, fileName) {
             position: feature.geometry.coordinates,
             map: map,
             title: feature.name,
-            content: createNamedPointMarkerContent(feature.name, feature.geometry.style),
+            content: createNamedPointMarkerContent(feature.name, feature.geometry.style, feature.properties),
             offset: new AMap.Pixel(-12, -31),  // 调整offset让点位在图标和文字之间（适配24px默认图标）
             zIndex: 100
         });
@@ -844,7 +868,8 @@ function displayKMLFeatures(features, fileName) {
         marker.setExtData({
             name: feature.name,
             type: feature.type,
-            description: feature.description
+            description: feature.description,
+            properties: feature.properties || {}
         });
 
         layerMarkers.push(marker);
@@ -883,6 +908,12 @@ function displayKMLFeatures(features, fileName) {
         features: features  // 保存要素信息（含样式）用于恢复
     });
 
+    // 禁用自动聚焦到用户位置，保持KML区域视图
+    if (typeof disableAutoCenter !== 'undefined') {
+        disableAutoCenter = true;
+        console.log('导入KML后禁用自动聚焦');
+    }
+    
     // 停止实时定位，避免地图自动移回用户位置
     if (typeof stopRealtimeLocationTracking === 'function') {
         stopRealtimeLocationTracking();
@@ -1046,14 +1077,17 @@ function fitMapToCoordinates(coordinates) {
         [maxLng, maxLat]
     );
 
-    // 设置地图视野到边界范围，添加一些边距
-    map.setBounds(bounds, 60, [20, 20, 20, 20]); // 60是动画时间，数组是上下左右的边距
+    // 设置地图视野到边界范围，减小边距让内容占据更多屏幕
+    // 边距顺序: [上, 右, 下, 左]，增加右边距让地图内容左移
+    map.setBounds(bounds, 60, [10, 60, 10, 10]); // 右边距60px，让内容左移
 
-    // 如果视野太小（缩放级别太大），适当缩小一点
+    // 聚焦后再放大一级，让工地区域更清晰
     setTimeout(() => {
         const currentZoom = map.getZoom();
-        if (currentZoom > 16) {
-            map.setZoom(16);
+        // 在当前缩放基础上放大1级，但不超过18
+        const targetZoom = Math.min(currentZoom + 1, 18);
+        if (targetZoom !== currentZoom) {
+            map.setZoom(targetZoom);
         }
     }, 100);
 }
@@ -1071,6 +1105,9 @@ function toggleIconState(marker) {
             const currentState = iconDiv.dataset.state;
             const iconType = iconDiv.dataset.iconType;
             const name = iconDiv.dataset.name;
+            // 获取存储的图标路径
+            const downIconPath = iconDiv.dataset.downIcon;
+            const upIconPath = iconDiv.dataset.upIcon;
 
             console.log('当前状态:', currentState, '图标类型:', iconType, '名称:', name);
             console.log('activeMarkerName === name:', activeMarkerName === name);
@@ -1079,7 +1116,9 @@ function toggleIconState(marker) {
             if (activeMarkerName === name && currentState === 'up') {
                 console.log('恢复为默认状态');
                 // 恢复为down状态（默认状态）
-                const newIconPath = getIconPath(iconType, 'down');
+                const newIconPath = (downIconPath && downIconPath.startsWith('images/')) 
+                    ? downIconPath 
+                    : getIconPath(iconType, 'down');
                 const img = iconDiv.querySelector('img');
                 if (img) {
                     img.src = newIconPath;
@@ -1102,7 +1141,9 @@ function toggleIconState(marker) {
             // 切换当前marker状态：down -> up
             if (currentState === 'down') {
                 console.log('切换为up状态');
-                const newIconPath = getIconPath(iconType, 'up');
+                const newIconPath = (upIconPath && upIconPath.startsWith('images/')) 
+                    ? upIconPath 
+                    : getIconPath(iconType, 'up');
                 const img = iconDiv.querySelector('img');
                 if (img) {
                     img.src = newIconPath;
@@ -1130,9 +1171,12 @@ function resetMarkerState(marker) {
         if (iconDiv) {
             const currentState = iconDiv.dataset.state;
             const iconType = iconDiv.dataset.iconType;
+            const downIconPath = iconDiv.dataset.downIcon;
 
             if (currentState === 'up') {
-                const newIconPath = getIconPath(iconType, 'down');
+                const newIconPath = (downIconPath && downIconPath.startsWith('images/')) 
+                    ? downIconPath 
+                    : getIconPath(iconType, 'down');
                 const img = iconDiv.querySelector('img');
                 if (img) {
                     img.src = newIconPath;
@@ -1259,11 +1303,31 @@ function getLabelStyle(iconType, isSelected = false, isSelectable = true) {
 }
 
 // 使用名称的点标记样式（支持样式覆盖）
-function createNamedPointMarkerContent(name, style) {
+function createNamedPointMarkerContent(name, style, properties) {
     const iconType = getIconTypeByName(name);
-    const iconPath = getIconPath(iconType, 'down');
     const selectable = isPointSelectable(name);
-    const labelStyle = getLabelStyle(iconType, false, selectable);
+    
+    // 优先使用API返回的图标路径（已根据icon_id转换为本地路径）
+    let iconPath;
+    if (properties && properties.downIcon && properties.downIcon.startsWith('images/')) {
+        iconPath = properties.downIcon;
+    } else {
+        iconPath = getIconPath(iconType, 'down');
+    }
+    
+    // 优先使用API返回的文字样式
+    let labelStyle;
+    if (properties && properties.textColor) {
+        labelStyle = {
+            fillColor: properties.textColor,
+            strokeColor: properties.textFrameColor || '#FFFFFF',
+            strokeWidth: 1,
+            fontSize: properties.textSize || 12,
+            fontWeight: 'normal'
+        };
+    } else {
+        labelStyle = getLabelStyle(iconType, false, selectable);
+    }
 
     return `
         <div style="
@@ -1277,6 +1341,8 @@ function createNamedPointMarkerContent(name, style) {
                  data-icon-type="${iconType}"
                  data-state="down"
                  data-name="${name}"
+                 data-down-icon="${properties?.downIcon || ''}"
+                 data-up-icon="${properties?.upIcon || ''}"
                  style="
                     width: 24px;
                     height: 24px;

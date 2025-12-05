@@ -26,50 +26,15 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 初始化KML导入功能
     initKMLImport();
-    
-    // 尝试自动加载同目录下的默认 KML 文件（更健壮的多重回退并输出调试信息）
-    (function tryLoadDefaultKml() {
-        const candidateUrls = [];
 
-        candidateUrls.push('丰隆.kml');
-        let tried = 0;
-        function tryNext() {
-            const url = candidateUrls[tried++];
-            console.log('尝试加载 KML，URL=', url);
+    // 加载地图数据（优先使用API，失败则回退到KML文件）
+    const useAPIData = true; // 使用真实API（已集成登录认证）
 
-            fetch(url, { mode: 'cors' })
-                .then(resp => {
-                    if (!resp.ok) {
-                        console.warn('KML fetch 返回非 OK:', resp.status, resp.statusText, 'url=', url);
-                        tryNext();
-                        return null;
-                    }
-                    return resp.text();
-                })
-                .then(kmlText => {
-                    if (!kmlText) return;
-                    console.log('成功加载 KML:', url);
-                    window.isFirstKMLImport = true;
-                    try { sessionStorage.setItem('kmlRawData', kmlText); sessionStorage.setItem('kmlFileName', url); } catch (e) {}
-                    if (typeof parseKML === 'function') parseKML(kmlText, url);
-
-                    // 解析/显示完成后确保启动定位
-                    setTimeout(() => {
-                        if (typeof startRealtimeLocationTracking === 'function') {
-                            try { startRealtimeLocationTracking(); } catch (e) { console.warn('启动实时定位失败', e); }
-                        } else if (typeof getCurrentLocation === 'function') {
-                            try { getCurrentLocation(); } catch (e) { console.warn('一次性定位失败', e); }
-                        }
-                    }, 300);
-                })
-                .catch(err => {
-                    console.warn('加载 KML 失败，url=', url, err);
-                    tryNext();
-                });
-        }
-
-        tryNext();
-    })();
+    if (useAPIData) {
+        loadMapDataFromAPI();
+    } else {
+        loadDefaultKMLFile();
+    }
     
     // 等待地图加载完成后，尝试从sessionStorage恢复KML数据
     setTimeout(function() {
@@ -209,6 +174,361 @@ function navigateToPage(page) {
         default:
             console.warn('未知页面:', page);
     }
+}
+
+/**
+ * 加载默认KML文件
+ */
+function loadDefaultKMLFile() {
+    console.log('[KML加载] 使用默认KML文件模式');
+
+    const kmlFile = '丰隆.kml';
+    console.log('[KML加载] 尝试加载:', kmlFile);
+
+    fetch(kmlFile)
+        .then(resp => {
+            if (!resp.ok) {
+                throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+            }
+            return resp.text();
+        })
+        .then(kmlText => {
+            console.log('[KML加载] 成功加载 KML 文件');
+            window.isFirstKMLImport = true;
+            try {
+                sessionStorage.setItem('kmlRawData', kmlText);
+                sessionStorage.setItem('kmlFileName', kmlFile);
+            } catch (e) {
+                console.warn('[KML加载] 保存到sessionStorage失败:', e);
+            }
+
+            if (typeof parseKML === 'function') {
+                parseKML(kmlText, kmlFile);
+            } else {
+                console.error('[KML加载] parseKML函数不存在');
+            }
+
+            // 解析/显示完成后确保启动定位
+            setTimeout(() => {
+                if (typeof startRealtimeLocationTracking === 'function') {
+                    try {
+                        startRealtimeLocationTracking();
+                    } catch (e) {
+                        console.warn('[KML加载] 启动实时定位失败:', e);
+                    }
+                } else if (typeof getCurrentLocation === 'function') {
+                    try {
+                        getCurrentLocation();
+                    } catch (e) {
+                        console.warn('[KML加载] 一次性定位失败:', e);
+                    }
+                }
+            }, 300);
+        })
+        .catch(err => {
+            console.error('[KML加载] 加载失败:', err);
+            alert('加载地图数据失败，请刷新页面重试');
+        });
+}
+
+/**
+ * 从API加载地图数据（点、线、面）
+ */
+async function loadMapDataFromAPI() {
+    try {
+        console.log('[API加载] 开始从API加载地图数据...');
+        
+        // 提前禁用自动聚焦，防止定位完成后跳转到用户位置
+        if (typeof disableAutoCenter !== 'undefined') {
+            disableAutoCenter = true;
+            console.log('[API加载] 已禁用自动聚焦');
+        }
+
+        // 1. 获取项目选择信息（仅用于日志）
+        const projectSelection = sessionStorage.getItem('projectSelection');
+        let projectName = '所有项目';
+        if (projectSelection) {
+            const { project } = JSON.parse(projectSelection);
+            projectName = project;
+            console.log('[API加载] 当前项目:', projectName);
+        }
+
+        // 2. 准备请求headers
+        const baseURL = 'http://115.159.67.12:8088/api/v1';
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+
+        // 如果有token则添加
+        const token = sessionStorage.getItem('authToken') || '';
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+            console.log('[API加载] 使用Token认证');
+        } else {
+            console.warn('[API加载] 未找到Token，尝试无认证请求');
+        }
+
+        // 3. 并行请求点、线、面数据（不传projectId，获取所有数据）
+        console.log('[API加载] 请求所有点线面数据...');
+        const [pointsRes, polylinesRes, polygonsRes] = await Promise.all([
+            fetch(`${baseURL}/points-with-icons?page=1&page_size=1000`, { headers }),
+            fetch(`${baseURL}/polylines?page=1&page_size=1000`, { headers }),
+            fetch(`${baseURL}/polygons?page=1&page_size=1000`, { headers })
+        ]);
+
+        // 5. 检查响应
+        if (!pointsRes.ok || !polylinesRes.ok || !polygonsRes.ok) {
+            console.error('[API加载] API请求失败:', {
+                points: pointsRes.status,
+                polylines: polylinesRes.status,
+                polygons: polygonsRes.status
+            });
+            throw new Error('API请求失败');
+        }
+
+        // 6. 解析数据
+        const pointsData = await pointsRes.json();
+        const polylinesData = await polylinesRes.json();
+        const polygonsData = await polygonsRes.json();
+
+        console.log('[API加载] 原始API返回:', {
+            points: pointsData,
+            polylines: polylinesData,
+            polygons: polygonsData
+        });
+
+        // 提取实际的数据数组（处理分页响应格式）
+        const points = pointsData.data?.list || pointsData.data || [];
+        const polylines = polylinesData.data?.list || polylinesData.data || [];
+        const polygons = polygonsData.data?.list || polygonsData.data || [];
+
+        // 打印第一条数据看看格式
+        if (points.length > 0) console.log('[API加载] 点数据示例:', points[0]);
+        if (polylines.length > 0) console.log('[API加载] 线数据示例:', polylines[0]);
+        if (polygons.length > 0) console.log('[API加载] 面数据示例:', polygons[0]);
+
+        console.log('[API加载] 数据加载成功:', {
+            点数量: points.length,
+            线数量: polylines.length,
+            面数量: polygons.length
+        });
+
+        // 7. 打印数据摘要（调试用）
+        if (window.APIDataConverter) {
+            APIDataConverter.printSummary(points, polylines, polygons);
+        }
+
+        // 8. 转换为KML格式的features（使用新的转换器）
+        let features;
+        if (window.APIDataConverter) {
+            features = APIDataConverter.convert(points, polylines, polygons);
+        } else {
+            features = convertAPIDataToFeatures(points, polylines, polygons);
+        }
+
+        console.log('[API加载] 转换后的features数量:', features.length);
+
+        // 8. 构建KML数据对象
+        const kmlData = {
+            features: features,
+            fileName: `${projectName} (API数据)`
+        };
+
+        // 9. 显示地图数据（如果有数据）
+        if (features.length > 0) {
+            window.isFirstKMLImport = true;
+
+            // 保存到全局变量
+            window.kmlData = kmlData;
+
+            // 调用 kml-handler.js 中的显示函数
+            console.log('[API加载] 调用displayKMLFeatures显示地图数据');
+            displayKMLFeatures(features, kmlData.fileName);
+
+            console.log('[API加载] 地图数据已显示');
+        } else {
+            console.warn('[API加载] 无地图数据，跳过显示');
+        }
+
+        // 10. 启动定位（无论是否有地图数据都要定位）
+        setTimeout(() => {
+            if (typeof startRealtimeLocationTracking === 'function') {
+                try {
+                    startRealtimeLocationTracking();
+                } catch (e) {
+                    console.warn('启动实时定位失败', e);
+                }
+            } else if (typeof getCurrentLocation === 'function') {
+                try {
+                    getCurrentLocation();
+                } catch (e) {
+                    console.warn('一次性定位失败', e);
+                }
+            }
+        }, 300);
+
+        console.log('[API加载] 地图数据加载完成');
+
+    } catch (error) {
+        console.error('[API加载] 加载地图数据失败:', error);
+        alert('加载地图数据失败：' + error.message + '\n请检查网络连接或联系管理员');
+    }
+}
+
+/**
+ * 将API数据转换为KML格式的features
+ */
+function convertAPIDataToFeatures(points, polylines, polygons) {
+    const features = [];
+
+    // 转换点
+    points.forEach(point => {
+        features.push({
+            name: point.name || '未命名点',
+            description: point.description || '',
+            geometry: {
+                type: 'point',
+                coordinates: [point.longitude, point.latitude]
+            },
+            properties: {
+                icon: point.icon_url || '',
+                ...point
+            }
+        });
+    });
+
+    // 转换线
+    polylines.forEach(line => {
+        // API字段名是 line_position，不是 coordinates
+        const coordsField = line.line_position;
+
+        if (!coordsField) {
+            console.warn('线缺少坐标数据:', line.line_name);
+            return;
+        }
+
+        let coords = [];
+        try {
+            if (typeof coordsField === 'string') {
+                // 检查是否是分号分隔的格式: "lng,lat;lng,lat;..."
+                if (coordsField.includes(';') && !coordsField.includes('[')) {
+                    coords = coordsField.split(';').map(point => {
+                        const [lng, lat] = point.split(',').map(Number);
+                        return [lng, lat];
+                    }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+                    console.log('[转换] 线坐标(分号格式):', line.line_name, '点数:', coords.length);
+                } else {
+                    // 尝试直接解析JSON
+                    try {
+                        coords = JSON.parse(coordsField);
+                    } catch (jsonError) {
+                        // 如果失败，尝试提取坐标数组部分
+                        const match = coordsField.match(/\[\[[\d.,\s\[\]-]+\]\]/);
+                        if (match) {
+                            coords = JSON.parse(match[0]);
+                        } else {
+                            throw new Error('无法提取坐标');
+                        }
+                    }
+                }
+            } else if (Array.isArray(coordsField)) {
+                coords = coordsField;
+            } else {
+                throw new Error('未知坐标格式');
+            }
+        } catch (e) {
+            console.warn('解析线坐标失败:', line.line_name, e);
+            return;
+        }
+
+        // 确保coords是数组格式
+        if (!Array.isArray(coords) || coords.length === 0) {
+            console.warn('线坐标格式错误:', line.line_name, coords);
+            return;
+        }
+
+        features.push({
+            name: line.line_name || '未命名线',
+            description: line.description || '',
+            geometry: {
+                type: 'line',
+                coordinates: coords,
+                style: {
+                    strokeColor: line.line_color || '#9AE59D',
+                    strokeWeight: line.line_width || 1,
+                    strokeOpacity: 1
+                }
+            }
+        });
+    });
+
+    // 转换面
+    polygons.forEach(polygon => {
+        // API字段名是 pg_position，不是 coordinates
+        const coordsField = polygon.pg_position;
+
+        if (!coordsField) {
+            console.warn('面缺少坐标数据:', polygon.polygon_name);
+            return;
+        }
+
+        let coords = [];
+        try {
+            if (typeof coordsField === 'string') {
+                // 检查是否是分号分隔的格式: "lng,lat;lng,lat;..."
+                if (coordsField.includes(';') && !coordsField.includes('[')) {
+                    coords = coordsField.split(';').map(point => {
+                        const [lng, lat] = point.split(',').map(Number);
+                        return [lng, lat];
+                    }).filter(p => !isNaN(p[0]) && !isNaN(p[1]));
+                    console.log('[转换] 面坐标(分号格式):', polygon.polygon_name, '点数:', coords.length);
+                } else {
+                    // 尝试直接解析JSON
+                    try {
+                        coords = JSON.parse(coordsField);
+                    } catch (jsonError) {
+                        // 如果失败，尝试提取坐标数组部分
+                        const match = coordsField.match(/\[\[[\d.,\s\[\]-]+\]\]/);
+                        if (match) {
+                            coords = JSON.parse(match[0]);
+                        } else {
+                            throw new Error('无法提取坐标');
+                        }
+                    }
+                }
+            } else if (Array.isArray(coordsField)) {
+                coords = coordsField;
+            } else {
+                throw new Error('未知坐标格式');
+            }
+        } catch (e) {
+            console.warn('解析面坐标失败:', polygon.polygon_name, e);
+            return;
+        }
+
+        // 确保coords是数组格式
+        if (!Array.isArray(coords) || coords.length === 0) {
+            console.warn('面坐标格式错误:', polygon.polygon_name, coords);
+            return;
+        }
+
+        features.push({
+            name: polygon.polygon_name || '未命名面',
+            description: polygon.description || '',
+            geometry: {
+                type: 'polygon',
+                coordinates: coords,
+                style: {
+                    fillColor: polygon.pg_color || '#CCCCCC',
+                    fillOpacity: 0.3,
+                    strokeColor: polygon.pg_frame_color || 'transparent',
+                    strokeWeight: polygon.pg_frame_width || 0
+                }
+            }
+        });
+    });
+
+    return features;
 }
 
 /**
