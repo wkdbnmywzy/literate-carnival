@@ -328,14 +328,29 @@ async function loadMapDataFromAPI() {
 
         console.log('[API加载] 转换后的features数量:', features.length);
 
-        // 8. 构建KML数据对象
+        // 9. 对线数据进行分割处理（与KML导入时一样）
+        console.log('[API加载] 开始分割线段...');
+        let processedFeatures = features;
+        if (typeof processLineIntersections === 'function') {
+            try {
+                processedFeatures = processLineIntersections(features);
+                console.log('[API加载] 线段分割完成，处理后features数量:', processedFeatures.length);
+            } catch (e) {
+                console.warn('[API加载] 线段分割失败，使用原始数据:', e);
+                processedFeatures = features;
+            }
+        } else {
+            console.warn('[API加载] processLineIntersections函数不存在，跳过分割');
+        }
+
+        // 10. 构建KML数据对象
         const kmlData = {
-            features: features,
+            features: processedFeatures,
             fileName: `${projectName} (API数据)`
         };
 
-        // 9. 显示地图数据（如果有数据）
-        if (features.length > 0) {
+        // 11. 显示地图数据（如果有数据）
+        if (processedFeatures.length > 0) {
             window.isFirstKMLImport = true;
 
             // 保存到全局变量
@@ -343,7 +358,7 @@ async function loadMapDataFromAPI() {
 
             // 调用 kml-handler.js 中的显示函数
             console.log('[API加载] 调用displayKMLFeatures显示地图数据');
-            displayKMLFeatures(features, kmlData.fileName);
+            displayKMLFeatures(processedFeatures, kmlData.fileName);
 
             console.log('[API加载] 地图数据已显示');
         } else {

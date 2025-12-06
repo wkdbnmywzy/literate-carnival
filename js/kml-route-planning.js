@@ -114,6 +114,111 @@ function buildKMLGraph() {
 
     console.log(`路径图构建完成: ${kmlNodes.length}个节点, ${kmlEdges.length}条边`);
 
+    // 【连通性修复】使用并查集检测连通分量，然后连接不同分量
+    // 这确保整个图是连通的，同时只添加必要的最短连接
+    let addedConnections = 0;
+    
+    // 并查集实现
+    const parent = [];
+    const rank = [];
+    for (let i = 0; i < kmlNodes.length; i++) {
+        parent[i] = i;
+        rank[i] = 0;
+    }
+    
+    function find(x) {
+        if (parent[x] !== x) {
+            parent[x] = find(parent[x]); // 路径压缩
+        }
+        return parent[x];
+    }
+    
+    function union(x, y) {
+        const px = find(x);
+        const py = find(y);
+        if (px === py) return false;
+        
+        // 按秩合并
+        if (rank[px] < rank[py]) {
+            parent[px] = py;
+        } else if (rank[px] > rank[py]) {
+            parent[py] = px;
+        } else {
+            parent[py] = px;
+            rank[px]++;
+        }
+        return true;
+    }
+    
+    // 根据现有边初始化并查集
+    kmlEdges.forEach(edge => {
+        union(edge.start, edge.end);
+    });
+    
+    // 统计连通分量数量
+    const components = new Set();
+    for (let i = 0; i < kmlNodes.length; i++) {
+        components.add(find(i));
+    }
+    console.log(`[连通性修复] 检测到 ${components.size} 个连通分量`);
+    
+    // 如果有多个连通分量，需要连接它们
+    if (components.size > 1) {
+        // 收集所有跨分量的潜在连接
+        const crossComponentConnections = [];
+        
+        for (let i = 0; i < kmlNodes.length; i++) {
+            for (let j = i + 1; j < kmlNodes.length; j++) {
+                // 只考虑不同连通分量的节点
+                if (find(i) !== find(j)) {
+                    const nodeA = kmlNodes[i];
+                    const nodeB = kmlNodes[j];
+                    const dist = calculateDistance(
+                        {lng: nodeA.lng, lat: nodeA.lat},
+                        {lng: nodeB.lng, lat: nodeB.lat}
+                    );
+                    
+                    crossComponentConnections.push({
+                        nodeA: i,
+                        nodeB: j,
+                        dist: dist,
+                        coordA: {lng: nodeA.lng, lat: nodeA.lat},
+                        coordB: {lng: nodeB.lng, lat: nodeB.lat}
+                    });
+                }
+            }
+        }
+        
+        // 按距离排序
+        crossComponentConnections.sort((a, b) => a.dist - b.dist);
+        
+        // 使用Kruskal算法思想：只添加能连接不同分量的最短边
+        for (const conn of crossComponentConnections) {
+            if (find(conn.nodeA) !== find(conn.nodeB)) {
+                console.log(`[连通性修复] 连接分量: 节点${conn.nodeA}和${conn.nodeB}，距离${conn.dist.toFixed(2)}米`);
+                addEdge(conn.nodeA, conn.nodeB, conn.dist, [conn.coordA, conn.coordB]);
+                union(conn.nodeA, conn.nodeB);
+                addedConnections++;
+                
+                // 检查是否已经完全连通
+                const remainingComponents = new Set();
+                for (let i = 0; i < kmlNodes.length; i++) {
+                    remainingComponents.add(find(i));
+                }
+                if (remainingComponents.size === 1) {
+                    console.log(`[连通性修复] 图已完全连通`);
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (addedConnections > 0) {
+        console.log(`[连通性修复] 总共添加了${addedConnections}条连接边`);
+        // 重新构建邻接表
+        kmlGraph = buildAdjacencyList();
+    }
+
     // 调试：输出图的连通性信息
     console.log('图结构调试信息:');
     const nodeConnectivity = {};
@@ -147,9 +252,9 @@ function buildKMLGraph() {
 // 查找或创建节点
 function findOrCreateNode(coordinate) {
     // 使用容差来合并节点
-    // 对于分割后的线段，需要合理的容差来确保端点正确合并
-    // 注意：分割时使用的容差是0.00001度（约1米），这里要匹配
-    const tolerance = 1.5; // 1.5米容差，确保分割后的端点和交点能够合并
+    // 注意：容差不能太大，否则短线段的两端会被合并成同一个节点（自环）
+    // 3米容差可以合并端点对齐误差，同时保留4-5米的短边
+    const tolerance = 3; // 3米容差
 
     // 提取经纬度
     let lng, lat;

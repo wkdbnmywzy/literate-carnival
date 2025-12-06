@@ -292,16 +292,17 @@ body {
 /* 底部卡片 */
 .bottom-card {
     position: absolute;
-    bottom: 60px;
+    bottom: 60px; /* 紧贴导航栏上方 */
     left: 0;
     right: 0;
     z-index: 110;
     background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
     border-radius: 20px 20px 0 0;
-    padding: 20px 0; /* 上下 20px，左右由子元素百分比控制 */
+    padding: 20px 0 0 0; /* 只保留顶部内边距，底部无内边距与导航栏无缝连接 */
     box-shadow: none;
-    max-width: 480px; /* 限制最大宽度 */
-    margin: 0 auto; /* 居中 */
+    max-width: 480px;
+    margin: 0 auto;
+    min-height: 120px; /* 设置最小高度，避免内容少时离导航栏太远 */
 }
 
 /* 导航页面底部卡片：与底部卡片保持一致的渐变与圆角样式 */
@@ -466,8 +467,9 @@ body {
 .route-selector {
     display: block;
     position: static;
-    margin-left: 4%; /* 左侧 4% 空白 */
-    margin-right: 15%; /* 右侧 15% 给途径点按钮区域 (3% + 12%) */
+    padding-left: 4%; /* 改用padding，让背景色延伸到边缘 */
+    padding-right: 15%; /* 右侧给途径点按钮区域 */
+    padding-bottom: 20px; /* 底部内边距，与导航栏保持间距 */
 }
 
 .location-inputs-wrapper {
