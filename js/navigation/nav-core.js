@@ -2086,9 +2086,8 @@ const NavCore = (function() {
                 forceSecondaryCheck = false;
             }
 
-            // 获取当前地图旋转角度（弧度），转换为度
-            const mapRotationRad = map.getRotation() || 0;
-            const mapRotation = mapRotationRad * 180 / Math.PI;
+            // 获取当前地图旋转角度（度数）
+            const mapRotation = map.getRotation() || 0;
 
             // 计算局部道路方向：前一个点→后一个点的连线
             // 这样更精准地反映当前位置的道路方向

@@ -767,7 +767,9 @@ const NavRenderer = (function() {
         try {
             if (!map) return;
 
-            const mapRotation = -bearing;
+            // bearing 是角度(0-360)，直接传给 setRotation（接收角度）
+            // 地图顺时针旋转，让道路朝上
+            const mapRotation = bearing;
 
             if (smooth) {
                 map.setCenter(position, false, 300);
