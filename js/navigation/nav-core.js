@@ -2050,117 +2050,121 @@ const NavCore = (function() {
     let lastAlignedBearing = null;       // 上次对齐的道路方向（用于平滑过渡）
 
     /**
-     * 实时道路对齐校验：确保道路始终竖直显示，图标0度与道路对齐
-     * 每次GPS更新都执行，用"前一个点→后一个点"的连线方向实时校正地图旋转
+     * 【重写】计算当前位置的地图旋转角度
+     * 核心思路：用路线上"当前点→下一个点"的方向作为旋转角度，让道路竖直朝上
+     * 
+     * 转向点触发条件（与语音播报一致）：
+     * 1. 索引判断：转向点前1个点、转向点本身、转向点后1个点
+     * 2. 距离判断：距离转向点<4米时也触发（防止点间距大时错过）
+     * 
+     * @param {number} currentIndex - 当前吸附点索引
+     * @returns {number} 地图旋转角度（度数）
+     */
+    function calculateMapRotation(currentIndex) {
+        const pointSet = window.currentSegmentPointSet;
+        const turningPoints = window.currentSegmentTurningPoints || [];
+        
+        if (!pointSet || currentIndex < 0 || currentIndex >= pointSet.length - 1) {
+            return lastAlignedBearing || 0;
+        }
+        
+        const currentPos = pointSet[currentIndex].position;
+        
+        // 查找是否需要使用转向点的预计算角度
+        let nearTurningPoint = null;
+        let triggerReason = '';
+        
+        for (const tp of turningPoints) {
+            const tpIndex = tp.pointIndex;
+            
+            // 条件1：索引判断（转向点前1个点、转向点本身、转向点后1个点）
+            if (currentIndex >= tpIndex - 1 && currentIndex <= tpIndex + 1) {
+                nearTurningPoint = tp;
+                triggerReason = `索引${currentIndex}在转向点${tpIndex}附近`;
+                break;
+            }
+            
+            // 条件2：距离判断（距离转向点<4米）
+            if (tpIndex < pointSet.length) {
+                const tpPos = pointSet[tpIndex].position;
+                const distToTurn = calculateDistanceBetween(currentPos, tpPos);
+                if (distToTurn < 4 && distToTurn > 0) {
+                    nearTurningPoint = tp;
+                    triggerReason = `距离转向点${tpIndex}仅${distToTurn.toFixed(1)}米`;
+                    break;
+                }
+            }
+        }
+        
+        let targetBearing;
+        
+        if (nearTurningPoint) {
+            // 【转向点附近】使用预计算的转向后方向
+            targetBearing = nearTurningPoint.bearingAfterTurn;
+            console.log(`[地图旋转] ${triggerReason}, 使用转向后方向: ${targetBearing.toFixed(1)}°`);
+        } else {
+            // 【普通直行段】用"当前点→下一个点"的方向
+            const nextPos = pointSet[currentIndex + 1].position;
+            targetBearing = calculateBearing(currentPos, nextPos);
+        }
+        
+        // 记录上次对齐的方向
+        lastAlignedBearing = targetBearing;
+        
+        return targetBearing;
+    }
+    
+    /**
+     * 计算两点间距离（米）
+     */
+    function calculateDistanceBetween(pos1, pos2) {
+        const [lng1, lat1] = pos1;
+        const [lng2, lat2] = pos2;
+        const R = 6371000;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLng / 2) * Math.sin(dLng / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
+    /**
+     * 【重写】实时道路对齐：确保道路始终竖直显示
+     * 简化逻辑：直接用calculateMapRotation计算的角度旋转地图
+     * 
      * @param {Array} position - 当前位置 [lng, lat]
      * @param {number} currentIndex - 当前吸附点索引
      */
     function secondaryVerticalCheck(position, currentIndex) {
         try {
-            // 【优化】转弯期间禁用实时对齐，避免与转向点旋转冲突
-            if (isTurningPhase) {
-                console.log('[实时对齐] 转弯期间，跳过实时对齐');
-                return;
-            }
-
-            const now = Date.now();
-
-            // 检查转弯阶段是否已结束
-            if (isTurningPhase && turningPhaseEndTime > 0 && now > turningPhaseEndTime) {
-                isTurningPhase = false;
-                turningPhaseEndTime = 0;
-                console.log('[实时对齐] 转弯阶段已结束');
-            }
-
-            const turningPoints = window.currentSegmentTurningPoints;
-            const pointSet = window.currentSegmentPointSet;
             const map = NavRenderer.getMap();
-
-            if (!pointSet || !map || currentIndex < 0 || currentIndex >= pointSet.length - 1) {
-                return;
-            }
-
-            // 重置强制校验标志
-            if (forceSecondaryCheck) {
-                console.log('[实时对齐] 偏离回归后立即执行校验');
-                forceSecondaryCheck = false;
-            }
-
-            // 获取当前地图旋转角度（度数）
-            const mapRotation = map.getRotation() || 0;
-
-            // 计算局部道路方向：前一个点→后一个点的连线
-            // 这样更精准地反映当前位置的道路方向
-            const prevIndex = Math.max(0, currentIndex - 1);
-            const nextIndex = Math.min(pointSet.length - 1, currentIndex + 1);
-
-            // 如果前后点相同（边界情况），跳过校验
-            if (prevIndex === nextIndex) return;
-
-            const localBearing = calculateBearing(
-                pointSet[prevIndex].position,
-                pointSet[nextIndex].position
-            );
-
-            // 计算道路在屏幕上的显示角度
-            // 地图旋转后，道路的屏幕角度 = 道路真实方向 - 地图旋转角度
-            let screenAngle = localBearing - mapRotation;
-            screenAngle = ((screenAngle % 360) + 360) % 360;
-
-            // 检查是否接近竖直（0°或180°表示屏幕上竖直）
-            const deviationFromNorth = Math.min(
-                Math.abs(screenAngle),
-                Math.abs(screenAngle - 360)
-            );
-            const deviationFromSouth = Math.abs(screenAngle - 180);
-            const deviationFromVertical = Math.min(deviationFromNorth, deviationFromSouth);
-
-            // 【核心改动】降低阈值到5度，确保道路始终精准竖直
-            // 这样图标保持0度就能和道路完美对齐
-            const alignmentThreshold = 5;
-
-            if (deviationFromVertical > alignmentThreshold) {
-                // 目标：让道路竖直显示（屏幕角度为0或180）
-                // 需要调整地图旋转角度，使 screenAngle = localBearing - mapRotation = 0 或 180
-                // 因此：mapRotation = localBearing 或 localBearing - 180
-
-                // 选择更接近当前旋转角度的目标（避免大幅度旋转）
-                const targetRotation1 = localBearing;
-                const targetRotation2 = localBearing - 180;
-
-                // 归一化到 -180 ~ 180
-                const normalize = (angle) => {
-                    angle = angle % 360;
-                    if (angle > 180) angle -= 360;
-                    if (angle < -180) angle += 360;
-                    return angle;
-                };
-
-                const normalizedTarget1 = normalize(targetRotation1);
-                const normalizedTarget2 = normalize(targetRotation2);
-                const normalizedCurrent = normalize(mapRotation);
-
-                const diff1 = Math.abs(normalize(normalizedTarget1 - normalizedCurrent));
-                const diff2 = Math.abs(normalize(normalizedTarget2 - normalizedCurrent));
-
-                const targetBearing = diff1 <= diff2 ? normalizedTarget1 : normalizedTarget2;
-
-                // 平滑过渡：只在偏差较小且变化极小时跳过，避免抖动
-                if (lastAlignedBearing !== null && deviationFromVertical < alignmentThreshold * 1.5) {
-                    const bearingChange = Math.abs(normalize(targetBearing - lastAlignedBearing));
-                    if (bearingChange < 1) {
-                        return; // 已经接近对齐且变化极小，跳过
-                    }
-                }
-
-                console.log(`[实时对齐] 道路方向=${localBearing.toFixed(1)}°, 地图旋转=${mapRotation.toFixed(1)}°, 屏幕角度=${screenAngle.toFixed(1)}°, 偏差=${deviationFromVertical.toFixed(1)}°, 校正到=${targetBearing.toFixed(1)}°`);
-
-                // 执行校正：setHeadingUpMode会将地图旋转到指定角度
+            if (!map) return;
+            
+            // 计算目标旋转角度
+            const targetBearing = calculateMapRotation(currentIndex);
+            
+            // 获取当前地图旋转角度
+            const currentRotation = map.getRotation() || 0;
+            
+            // 归一化角度差
+            const normalize = (angle) => {
+                angle = angle % 360;
+                if (angle > 180) angle -= 360;
+                if (angle < -180) angle += 360;
+                return angle;
+            };
+            
+            const angleDiff = Math.abs(normalize(targetBearing - currentRotation));
+            
+            // 只有角度差超过3度才旋转（避免抖动）
+            if (angleDiff > 3) {
+                console.log(`[地图旋转] 当前=${currentRotation.toFixed(1)}°, 目标=${targetBearing.toFixed(1)}°, 差值=${angleDiff.toFixed(1)}°`);
                 NavRenderer.setHeadingUpMode(position, targetBearing, true);
-                lastAlignedBearing = targetBearing;
             }
         } catch (e) {
-            console.error('[实时对齐] 执行失败:', e);
+            console.error('[地图旋转] 执行失败:', e);
         }
     }
 
@@ -2610,23 +2614,11 @@ const NavCore = (function() {
                     ? (map.getRotation() || 0) 
                     : 0;
 
-                // 车辆图标始终保持0度（朝上），通过实时校正地图旋转让道路竖直
-                // 这样图标0度就自然和道路方向对齐
+                // 车辆图标始终保持0度（朝上），通过地图旋转让道路竖直
                 displayHeading = 0;
 
-                // 【关键优化】检查是否到达转向点的前一个点
-                const turningCheck = checkTurningPoint(currentSnappedIndex);
-                if (turningCheck && turningCheck.needRotate) {
-                    // 到达转向点前一个点，旋转地图并记录角度
-                    currentMapRotation = turningCheck.bearing;
-                    NavRenderer.setHeadingUpMode(displayPosition, turningCheck.bearing, true);
-                } else {
-                    // 【优化】直行时只移动中心，不旋转地图
-                    NavRenderer.setCenterOnly(displayPosition, true);
-                }
-
-                // 【实时对齐】用"前一个点→后一个点"的方向校正地图旋转
-                // 确保道路始终竖直显示，图标0度与道路对齐
+                // 【简化】统一使用secondaryVerticalCheck处理所有旋转
+                // 该函数内部会判断是否在转向点附近，并使用对应的角度
                 secondaryVerticalCheck(displayPosition, currentSnappedIndex);
             } else {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
