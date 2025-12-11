@@ -767,8 +767,10 @@ const NavRenderer = (function() {
         try {
             if (!map) return;
 
-            // bearing 是角度(0-360)，直接传给 setRotation（接收角度）
-            // 地图顺时针旋转，让道路朝上
+            // bearing 是道路方向（0=北，90=东，180=南，270=西）
+            // 高德地图 setRotation(X) 会让"X度方向"朝上
+            // 例如：setRotation(90) 让正东朝上
+            // 所以直接用 bearing 值
             const mapRotation = bearing;
 
             if (smooth) {
