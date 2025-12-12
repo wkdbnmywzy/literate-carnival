@@ -30,6 +30,7 @@ const NavRenderer = (function() {
     let accuracyCircle = null;       // GPS精度圈
     let compassIndicator = null;     // 指北针
     let directionIndicator = null;   // 方向指示器（东南西北）
+    let turningPointLabels = [];     // 转向点调试标签
 
     // KML图层
     let kmlLayers = [];
@@ -1303,8 +1304,91 @@ const NavRenderer = (function() {
         clearDeviationHistory,
 
         // 暴露KML图层给路径规划模块使用
-        getKMLLayers: () => kmlLayers
+        getKMLLayers: () => kmlLayers,
+
+        // 【调试】显示转向点标签
+        showTurningPointLabels,
+        clearTurningPointLabels
     };
+
+    /**
+     * 【调试】在转向点旁边显示标签（左转/右转/掉头 + 角度）
+     * @param {Array} turningPoints - 转向点数组
+     * @param {Array} pointSet - 点集
+     */
+    function showTurningPointLabels(turningPoints, pointSet) {
+        try {
+            // 先清除旧标签
+            clearTurningPointLabels();
+
+            if (!map || !turningPoints || !pointSet) return;
+
+            turningPoints.forEach((tp, index) => {
+                const pos = tp.position || (pointSet[tp.pointIndex] && pointSet[tp.pointIndex].position);
+                if (!pos) return;
+
+                // 根据转向类型确定显示文字
+                let labelText = '';
+                const turnType = tp.turnType || '';
+                const turnAngle = tp.turnAngle || 0;
+                const bearing = tp.bearingAfterTurn || 0;
+
+                if (turnType.includes('掉头') || turnType.includes('U')) {
+                    labelText = `掉头\n${bearing.toFixed(0)}°`;
+                } else if (turnType.includes('左') || turnAngle < 0) {
+                    labelText = `左转\n${bearing.toFixed(0)}°`;
+                } else if (turnType.includes('右') || turnAngle > 0) {
+                    labelText = `右转\n${bearing.toFixed(0)}°`;
+                } else {
+                    labelText = `转向\n${bearing.toFixed(0)}°`;
+                }
+
+                // 创建文字标签
+                const label = new AMap.Text({
+                    text: labelText,
+                    position: pos,
+                    anchor: 'bottom-center',
+                    offset: new AMap.Pixel(0, -20),
+                    style: {
+                        'background-color': 'rgba(255, 100, 100, 0.9)',
+                        'border': '1px solid #ff0000',
+                        'border-radius': '4px',
+                        'color': '#ffffff',
+                        'font-size': '12px',
+                        'font-weight': 'bold',
+                        'padding': '4px 8px',
+                        'text-align': 'center',
+                        'white-space': 'pre'
+                    },
+                    zIndex: 200,
+                    map: map
+                });
+
+                turningPointLabels.push(label);
+                console.log(`[转向点标签] #${index}: ${turnType}, 角度=${turnAngle.toFixed(1)}°, 转向后方向=${bearing.toFixed(1)}°`);
+            });
+
+            console.log(`[转向点标签] 共显示 ${turningPointLabels.length} 个标签`);
+        } catch (e) {
+            console.error('[转向点标签] 显示失败:', e);
+        }
+    }
+
+    /**
+     * 清除转向点标签
+     */
+    function clearTurningPointLabels() {
+        try {
+            if (turningPointLabels.length > 0 && map) {
+                turningPointLabels.forEach(label => {
+                    if (label) map.remove(label);
+                });
+                turningPointLabels = [];
+            }
+        } catch (e) {
+            console.error('[转向点标签] 清除失败:', e);
+        }
+    }
 })();
 
 // 导出到全局

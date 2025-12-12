@@ -1050,6 +1050,11 @@ const NavCore = (function() {
             window.currentSegmentTurningPoints = segmentTurningPoints;
 
             console.log(`[分段点集] 当前段点集: ${segmentPointSet.length}个点, 转向点: ${segmentTurningPoints.length}个（重新计算）`);
+
+            // 【调试】显示转向点标签
+            if (NavRenderer && NavRenderer.showTurningPointLabels) {
+                NavRenderer.showTurningPointLabels(segmentTurningPoints, segmentPointSet);
+            }
         } catch (e) {
             console.error('[分段点集] 生成失败:', e);
         }
@@ -2049,17 +2054,13 @@ const NavCore = (function() {
     let forceSecondaryCheck = false;     // 是否强制立即执行校验（偏离回归后）
     let lastAlignedBearing = null;       // 上次对齐的道路方向（用于平滑过渡）
 
-    // 记录上一个已执行的转向点索引和对应的旋转角度
-    let lastExecutedTurnIndex = -1;
-    let lastExecutedBearing = 0;
-
     /**
-     * 【重写】计算当前位置的地图旋转角度
+     * 【简化重写】计算当前位置的地图旋转角度
      * 
-     * 策略：
-     * 1. 转向点前1个点 / 距离<4米：使用该转向点的预计算角度，并记录
-     * 2. 路段上其他点：使用"上一个转向点"的角度
-     * 3. 校验：检查道路是否竖直，不符合则重新应用上一个转向点的角度
+     * 核心策略：用"当前位置 → 下一个点"的方向，让道路始终竖直朝上
+     * 
+     * 特殊处理：
+     * - 转向点前1个点或距离<4米：用"当前位置 → 转向点后1个点"的方向（提前预判）
      * 
      * @param {number} currentIndex - 当前吸附点索引
      * @returns {number} 地图旋转角度（度数）
@@ -2073,8 +2074,9 @@ const NavCore = (function() {
         }
         
         const currentPos = pointSet[currentIndex].position;
+        let targetBearing;
         
-        // 1. 检查是否在转向点附近（前1个点或距离<4米）
+        // 检查是否在转向点附近（前1个点或距离<4米）
         let nearTurningPoint = null;
         
         for (const tp of turningPoints) {
@@ -2083,56 +2085,34 @@ const NavCore = (function() {
             // 条件1：转向点前1个点
             if (currentIndex === tpIndex - 1) {
                 nearTurningPoint = tp;
-                console.log(`[地图旋转] 到达转向点${tpIndex}前1个点`);
                 break;
             }
             
-            // 条件2：距离转向点<4米
+            // 条件2：距离转向点<4米（且还没到转向点）
             if (tpIndex < pointSet.length && currentIndex < tpIndex) {
                 const tpPos = pointSet[tpIndex].position;
                 const distToTurn = calculateDistanceBetween(currentPos, tpPos);
                 if (distToTurn < 4 && distToTurn > 0) {
                     nearTurningPoint = tp;
-                    console.log(`[地图旋转] 距离转向点${tpIndex}仅${distToTurn.toFixed(1)}米`);
                     break;
                 }
             }
         }
         
-        let targetBearing;
-        
         if (nearTurningPoint) {
-            // 【转向点附近】使用预计算的转向后方向，并记录
-            targetBearing = nearTurningPoint.bearingAfterTurn;
-            lastExecutedTurnIndex = nearTurningPoint.pointIndex;
-            lastExecutedBearing = targetBearing;
-            console.log(`[地图旋转] 使用转向点${nearTurningPoint.pointIndex}的预计算角度: ${targetBearing.toFixed(1)}°`);
+            // 【转向点附近】用"当前位置 → 转向点后1个点"的方向（提前预判）
+            const tpIndex = nearTurningPoint.pointIndex;
+            const afterTurnIndex = Math.min(tpIndex + 1, pointSet.length - 1);
+            const afterTurnPos = pointSet[afterTurnIndex].position;
+            targetBearing = calculateBearing(currentPos, afterTurnPos);
+            console.log(`[地图旋转] 转向点${tpIndex}附近，用当前→转向后点方向: ${targetBearing.toFixed(1)}°`);
         } else {
-            // 【路段上】查找上一个转向点（已经过的最近转向点）
-            let prevTurnPoint = null;
-            for (let i = turningPoints.length - 1; i >= 0; i--) {
-                if (turningPoints[i].pointIndex <= currentIndex) {
-                    prevTurnPoint = turningPoints[i];
-                    break;
-                }
-            }
-            
-            if (prevTurnPoint) {
-                // 使用上一个转向点的角度
-                targetBearing = prevTurnPoint.bearingAfterTurn;
-                console.log(`[地图旋转] 路段上，使用上一个转向点${prevTurnPoint.pointIndex}的角度: ${targetBearing.toFixed(1)}°`);
-            } else {
-                // 没有上一个转向点（起点到第一个转向点之间）
-                // 使用起点到第一个转向点的方向
-                if (turningPoints.length > 0) {
-                    const firstTurnPos = pointSet[turningPoints[0].pointIndex].position;
-                    targetBearing = calculateBearing(pointSet[0].position, firstTurnPos);
-                } else {
-                    // 没有转向点，用当前点到下一个点的方向
-                    const nextPos = pointSet[currentIndex + 1].position;
-                    targetBearing = calculateBearing(currentPos, nextPos);
-                }
-                console.log(`[地图旋转] 起始段，计算方向: ${targetBearing.toFixed(1)}°`);
+            // 【普通路段】用"当前位置 → 下一个点"的方向
+            const nextPos = pointSet[currentIndex + 1].position;
+            targetBearing = calculateBearing(currentPos, nextPos);
+            // 只在角度变化较大时输出日志，避免刷屏
+            if (lastAlignedBearing === null || Math.abs(targetBearing - lastAlignedBearing) > 5) {
+                console.log(`[地图旋转] 当前→下一点方向: ${targetBearing.toFixed(1)}°`);
             }
         }
         
