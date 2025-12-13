@@ -787,10 +787,10 @@ const NavRenderer = (function() {
             }
 
             // bearing 是道路方向（0=北，90=东，180=南，270=西）
-            // 高德地图 setRotation(X) 会让"X度方向"朝上
-            // 例如：setRotation(90) 让正东朝上
-            // 所以直接用 bearing 值
-            const mapRotation = bearing;
+            // 高德地图 setRotation(X) 是让地图顺时针旋转X度
+            // 要让道路方向朝上，需要逆时针旋转bearing度
+            // 即 setRotation(-bearing) 或 setRotation(360-bearing)
+            const mapRotation = -bearing;
 
             showDebug(`旋转: bearing=${bearing.toFixed(1)}°`);
 
