@@ -2171,6 +2171,16 @@ const NavCore = (function() {
                 console.log(`[地图旋转] 当前=${currentRotation.toFixed(1)}°, 目标=${targetBearing.toFixed(1)}°, 差值=${angleDiff.toFixed(1)}°`);
                 NavRenderer.setHeadingUpMode(position, targetBearing, true);
             }
+
+            // 【调试】显示方向箭头
+            const pointSet = window.currentSegmentPointSet;
+            if (pointSet && currentIndex >= 0 && currentIndex < pointSet.length - 1) {
+                const currentPos = pointSet[currentIndex].position;
+                const nextPos = pointSet[currentIndex + 1].position;
+                if (NavRenderer.showDirectionArrow) {
+                    NavRenderer.showDirectionArrow(currentPos, nextPos, targetBearing);
+                }
+            }
         } catch (e) {
             console.error('[地图旋转] 执行失败:', e);
         }

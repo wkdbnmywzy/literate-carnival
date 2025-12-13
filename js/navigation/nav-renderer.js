@@ -31,6 +31,7 @@ const NavRenderer = (function() {
     let compassIndicator = null;     // 指北针
     let directionIndicator = null;   // 方向指示器（东南西北）
     let turningPointLabels = [];     // 转向点调试标签
+    let debugDirectionArrow = null;  // 调试用方向箭头
 
     // KML图层
     let kmlLayers = [];
@@ -1334,8 +1335,55 @@ const NavRenderer = (function() {
 
         // 【调试】显示转向点标签
         showTurningPointLabels,
-        clearTurningPointLabels
+        clearTurningPointLabels,
+
+        // 【调试】显示方向箭头
+        showDirectionArrow,
+        clearDirectionArrow
     };
+
+    /**
+     * 【调试】显示从当前位置到下一个点的方向箭头
+     * @param {Array} fromPos - 当前位置 [lng, lat]
+     * @param {Array} toPos - 下一个点位置 [lng, lat]
+     * @param {number} bearing - 方向角度
+     */
+    function showDirectionArrow(fromPos, toPos, bearing) {
+        try {
+            clearDirectionArrow();
+            if (!map || !fromPos || !toPos) return;
+
+            // 绘制箭头线
+            debugDirectionArrow = new AMap.Polyline({
+                path: [fromPos, toPos],
+                strokeColor: '#FF0000',
+                strokeWeight: 4,
+                strokeOpacity: 0.8,
+                lineJoin: 'round',
+                lineCap: 'round',
+                showDir: true,
+                dirColor: '#FFFF00',
+                zIndex: 300,
+                map: map
+            });
+
+            showDebug(`箭头: ${bearing.toFixed(1)}° → [${toPos[0].toFixed(5)}, ${toPos[1].toFixed(5)}]`);
+        } catch (e) {
+            showDebug('箭头绘制失败: ' + e.message);
+        }
+    }
+
+    /**
+     * 清除方向箭头
+     */
+    function clearDirectionArrow() {
+        try {
+            if (debugDirectionArrow && map) {
+                map.remove(debugDirectionArrow);
+                debugDirectionArrow = null;
+            }
+        } catch (e) {}
+    }
 
     /**
      * 【调试】在转向点旁边显示标签（左转/右转/掉头 + 角度）
