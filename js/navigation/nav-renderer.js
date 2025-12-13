@@ -764,15 +764,35 @@ const NavRenderer = (function() {
      * @param {number} bearing - 行进方向（度数，0-360，正北为0）
      * @param {boolean} smooth - 是否平滑过渡
      */
+    // 调试信息显示函数
+    function showDebug(msg) {
+        const el = document.getElementById('debug-info');
+        if (el) {
+            const time = new Date().toLocaleTimeString();
+            el.innerHTML = `[${time}] ${msg}<br>` + el.innerHTML;
+            // 限制行数
+            const lines = el.innerHTML.split('<br>');
+            if (lines.length > 20) {
+                el.innerHTML = lines.slice(0, 20).join('<br>');
+            }
+        }
+        console.log(msg);
+    }
+
     function setHeadingUpMode(position, bearing, smooth = true) {
         try {
-            if (!map) return;
+            if (!map) {
+                showDebug('setHeadingUpMode: map不存在');
+                return;
+            }
 
             // bearing 是道路方向（0=北，90=东，180=南，270=西）
             // 高德地图 setRotation(X) 会让"X度方向"朝上
             // 例如：setRotation(90) 让正东朝上
             // 所以直接用 bearing 值
             const mapRotation = bearing;
+
+            showDebug(`旋转: bearing=${bearing.toFixed(1)}°`);
 
             if (smooth) {
                 map.setCenter(position, false, 300);
@@ -782,11 +802,17 @@ const NavRenderer = (function() {
                 map.setRotation(mapRotation);
             }
 
+            // 验证旋转是否生效
+            setTimeout(() => {
+                const actualRotation = map.getRotation() || 0;
+                showDebug(`验证: 目标=${mapRotation.toFixed(1)}°, 实际=${actualRotation.toFixed(1)}°`);
+            }, 500);
+
             if (map.getZoom() < 17) {
                 map.setZoom(17, false, 300);
             }
         } catch (e) {
-            console.error('[NavRenderer] 设置车头朝上模式失败:', e);
+            showDebug('旋转失败: ' + e.message);
         }
     }
 
