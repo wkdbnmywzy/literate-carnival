@@ -547,8 +547,8 @@ const NavRenderer = (function() {
                 });
             }
 
-            // 更新方向指示器（只在到达起点后显示）
-            updateDirectionIndicator(position, hasStarted);
+            // 更新指北针（始终显示，指向地图真北方向）
+            updateDirectionIndicator(position, true);
         } catch (e) {
             console.error('[NavRenderer] 更新用户标记失败:', e);
         }
@@ -570,100 +570,74 @@ const NavRenderer = (function() {
     }
 
     /**
-     * 创建或更新方向指示器（东南西北）
+     * 创建指北针HTML内容（带东南西北文字）
+     * @returns {string} HTML字符串
+     */
+    function createCompassHTML() {
+        const size = 80; // 整体尺寸
+        const imgSize = 50; // 图片尺寸（缩小一倍）
+        const labelOffset = 32; // 文字距离中心的距离
+
+        return `
+            <div style="position:relative; width:${size}px; height:${size}px; pointer-events:none;">
+                <!-- 指北针图片 -->
+                <img src="images/工地数字导航小程序切图/司机/2X/导航/方向指示.png" 
+                     style="position:absolute; left:${(size - imgSize) / 2}px; top:${(size - imgSize) / 2}px; width:${imgSize}px; height:${imgSize}px; opacity:0.9;">
+                <!-- 北 -->
+                <span style="position:absolute; left:50%; top:0; transform:translateX(-50%); font-size:10px; font-weight:bold; color:#E53935; text-shadow:0 0 2px #fff;">北</span>
+                <!-- 南 -->
+                <span style="position:absolute; left:50%; bottom:0; transform:translateX(-50%); font-size:10px; font-weight:bold; color:#666; text-shadow:0 0 2px #fff;">南</span>
+                <!-- 东 -->
+                <span style="position:absolute; right:0; top:50%; transform:translateY(-50%); font-size:10px; font-weight:bold; color:#666; text-shadow:0 0 2px #fff;">东</span>
+                <!-- 西 -->
+                <span style="position:absolute; left:0; top:50%; transform:translateY(-50%); font-size:10px; font-weight:bold; color:#666; text-shadow:0 0 2px #fff;">西</span>
+            </div>
+        `;
+    }
+
+    /**
+     * 创建或更新方向指示器（指北针 - 东南西北）
+     * 指北针始终指向地图的真北方向，随地图旋转而反向旋转
      * @param {Array} position - 位置 [lng, lat]
-     * @param {boolean} show - 是否显示
+     * @param {boolean} show - 是否显示（默认始终显示）
      */
     function updateDirectionIndicator(position, show = true) {
         try {
             if (!map) return;
 
-            console.log('[NavRenderer] 更新方向指示器:', show ? '显示' : '隐藏');
-
-            if (!show) {
-                // 隐藏方向指示器
-                if (directionIndicator) {
-                    map.remove(directionIndicator);
-                    directionIndicator = null;
-                    console.log('[NavRenderer] 方向指示器已隐藏');
-                }
-                return;
-            }
+            const compassSize = 80; // 整体尺寸
 
             if (!directionIndicator) {
-                // 创建自定义覆盖物
-                const DirectionOverlay = function(position) {
-                    this.position = position;
-                };
+                // 使用自定义HTML内容创建指北针（带东南西北文字）
+                directionIndicator = new AMap.Marker({
+                    position: position,
+                    content: createCompassHTML(),
+                    offset: new AMap.Pixel(-compassSize / 2, -compassSize / 2),
+                    zIndex: 299,
+                    angle: 0,
+                    map: map,
+                    clickable: false
+                });
 
-                DirectionOverlay.prototype = new AMap.Overlay();
-
-                DirectionOverlay.prototype.onAdd = function() {
-                    const div = document.createElement('div');
-                    div.style.position = 'absolute';
-                    div.style.width = '160px';  // 增大尺寸，更清晰
-                    div.style.height = '160px';
-                    div.style.pointerEvents = 'none';  // 不阻挡地图交互
-                    div.style.zIndex = '301';  // 在用户标记上方
-
-                    const img = document.createElement('img');
-                    img.src = 'images/工地数字导航小程序切图/司机/2X/导航/方向指示.png';
-                    img.style.width = '100%';
-                    img.style.height = '100%';
-                    img.style.opacity = '0.7';  // 稍微透明，不遮挡地图
-
-                    // 添加加载成功/失败监听
-                    img.onload = function() {
-                        console.log('[NavRenderer] 方向指示图片加载成功');
-                    };
-                    img.onerror = function() {
-                        console.error('[NavRenderer] 方向指示图片加载失败:', img.src);
-                    };
-
-                    div.appendChild(img);
-                    this.el = div;
-                    this.map.getContainer().appendChild(div);
-                    this.updatePosition();
-
-                    console.log('[NavRenderer] 方向指示器DOM已创建');
-                };
-
-                DirectionOverlay.prototype.onRemove = function() {
-                    if (this.el && this.el.parentNode) {
-                        this.el.parentNode.removeChild(this.el);
-                    }
-                    this.el = null;
-                };
-
-                DirectionOverlay.prototype.updatePosition = function() {
-                    if (!this.el) return;
-                    const pixel = this.map.lngLatToContainer(this.position);
-                    this.el.style.left = (pixel.x - 80) + 'px';  // 居中（160/2=80）
-                    this.el.style.top = (pixel.y - 80) + 'px';
-                };
-
-                DirectionOverlay.prototype.setPosition = function(position) {
-                    this.position = position;
-                    this.updatePosition();
-                };
-
-                directionIndicator = new DirectionOverlay(position);
-                directionIndicator.setMap(map);
-
-                // 监听地图移动事件，实时更新位置
-                map.on('mapmove', function() {
-                    if (directionIndicator && directionIndicator.updatePosition) {
-                        directionIndicator.updatePosition();
+                // 监听地图旋转事件，实时更新指北针方向
+                map.on('rotatechange', function() {
+                    if (directionIndicator) {
+                        const mapRotation = map.getRotation() || 0;
+                        // 指北针需要反向旋转，以保持指向真北
+                        directionIndicator.setAngle(-mapRotation);
                     }
                 });
 
-                console.log('[NavRenderer] 方向指示器已创建，位置:', position);
+                console.log('[NavRenderer] 指北针已创建（带东南西北），位置:', position);
             } else {
                 // 更新位置
                 directionIndicator.setPosition(position);
+                // 更新旋转角度
+                const mapRotation = map.getRotation() || 0;
+                directionIndicator.setAngle(-mapRotation);
             }
         } catch (e) {
-            console.error('[NavRenderer] 更新方向指示器失败:', e);
+            console.error('[NavRenderer] 更新指北针失败:', e);
         }
     }
 
@@ -793,7 +767,7 @@ const NavRenderer = (function() {
             // 即 setRotation(-bearing) 或 setRotation(360-bearing)
             const mapRotation = -bearing;
 
-            showDebug(`旋转: bearing=${bearing.toFixed(1)}°`);
+            // showDebug(`旋转: bearing=${bearing.toFixed(1)}°`);
 
             if (smooth) {
                 map.setCenter(position, false, 300);
@@ -803,11 +777,11 @@ const NavRenderer = (function() {
                 map.setRotation(mapRotation);
             }
 
-            // 验证旋转是否生效
-            setTimeout(() => {
-                const actualRotation = map.getRotation() || 0;
-                showDebug(`验证: 目标=${mapRotation.toFixed(1)}°, 实际=${actualRotation.toFixed(1)}°`);
-            }, 500);
+            // 验证旋转是否生效（调试已禁用）
+            // setTimeout(() => {
+            //     const actualRotation = map.getRotation() || 0;
+            //     showDebug(`验证: 目标=${mapRotation.toFixed(1)}°, 实际=${actualRotation.toFixed(1)}°`);
+            // }, 500);
 
             if (map.getZoom() < 17) {
                 map.setZoom(17, false, 300);

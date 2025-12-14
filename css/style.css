@@ -5,7 +5,7 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
 }
 
-/* 隐藏高德地图logo和版权信息 */
+/* 隐藏高德地图logo和版权信�?*/
 .amap-logo {
     display: none !important;
     opacity: 0 !important;
@@ -97,7 +97,7 @@ body {
     top: 20px;
     left: 20px;
     right: 20px;
-    z-index: 80; /* 调整到底部卡片下一层 */
+    z-index: 80; /* 调整到底部卡片下一�?*/
     /* 容器本身透明，只负责定位 */
 }
 
@@ -109,7 +109,7 @@ body {
     background: rgba(255, 255, 255, 0.8);
     border-radius: 12px;
     padding: 12px 15px;
-    /* 更小、更柔和的阴影 */
+    /* 更小、更柔和的阴�?*/
     box-shadow: 0 2px 8px rgba(44, 136, 255, 0.5);
 }
 
@@ -275,7 +275,7 @@ body {
     text-overflow: ellipsis;
 }
 
-/* 空状态样式 */
+/* 空状态样�?*/
 .search-result-item:only-child {
     text-align: center;
     color: #999;
@@ -292,20 +292,20 @@ body {
 /* 底部卡片 */
 .bottom-card {
     position: absolute;
-    bottom: 60px; /* 紧贴导航栏上方 */
+    bottom: 60px; /* 紧贴导航栏上�?*/
     left: 0;
     right: 0;
     z-index: 110;
     background: linear-gradient(to bottom, #FFFFFF 0%, #DBE9FC 100%);
     border-radius: 20px 20px 0 0;
-    padding: 20px 0 0 0; /* 只保留顶部内边距，底部无内边距与导航栏无缝连接 */
+    padding: 20px 0 0 0; /* 只保留顶部内边距，底部无内边距与导航栏无缝连�?*/
     box-shadow: none;
     max-width: 480px;
     margin: 0 auto;
     min-height: 120px; /* 设置最小高度，避免内容少时离导航栏太远 */
 }
 
-/* 导航页面底部卡片：与底部卡片保持一致的渐变与圆角样式 */
+/* 导航页面底部卡片：与底部卡片保持一致的渐变与圆角样�?*/
 .navigation-card {
     position: absolute;
     bottom: 60px;
@@ -318,7 +318,7 @@ body {
     box-shadow: none;
 }
 
-/* 导航页起点输入占位符蓝色，与其它页面保持一致 */
+/* 导航页起点输入占位符蓝色，与其它页面保持一�?*/
 #nav-start-location::placeholder {
     color: #2A86FF;
 }
@@ -468,12 +468,12 @@ body {
     display: block;
     position: static;
     padding-left: 4%; /* 改用padding，让背景色延伸到边缘 */
-    padding-right: 15%; /* 右侧给途径点按钮区域 */
+    padding-right: 15%; /* 右侧给途径点按钮区�?*/
     padding-bottom: 20px; /* 底部内边距，与导航栏保持间距 */
 }
 
 .location-inputs-wrapper {
-    width: 100%; /* 占满 route-selector 的宽度 (76%) */
+    width: 100%; /* 占满 route-selector 的宽�?(76%) */
     border: 1px solid #e6e9ef;
     border-radius: 12px;
     background: #fff;
@@ -543,8 +543,8 @@ body {
     background: #e6e9ef;
 }
 
-/* 让途径点的下划线与“我的位置”分隔线等长：
-   使用与分隔线相同的左右内边距（16px 左，12px 右）绘制伪元素下划线 */
+/* 让途径点的下划线与“我的位置”分隔线等长�?
+   使用与分隔线相同的左右内边距�?6px 左，12px 右）绘制伪元素下划线 */
 .waypoint-row::after {
     content: '';
     position: absolute;
@@ -572,7 +572,7 @@ body {
     background: #e6e9ef;
 }
 
-/* 切换按钮 - 在横线右侧 */
+/* 切换按钮 - 在横线右�?*/
 .swap-btn {
     width: 38px;
     height: 38px;
@@ -586,7 +586,7 @@ body {
     justify-content: center;
     cursor: pointer;
     transition: all 0.2s ease;
-    position: absolute; /* 固定在输入盒子右侧中部 */
+    position: absolute; /* 固定在输入盒子右侧中�?*/
     right: 12px;
     top: 50%;
     transform: translateY(-50%);
@@ -615,7 +615,7 @@ body {
 
 .add-waypoint {
     position: absolute;
-    right: 0; /* 贴着右边缘 */
+    right: 0; /* 贴着右边�?*/
     width: 12%; /* 途径点按钮区域占 12% */
     top: 20px;
     bottom: 20px;
@@ -654,7 +654,7 @@ body {
 }
 
 .add-btn img {
-    width: 80%; /* 相对于按钮大小 */
+    width: 80%; /* 相对于按钮大�?*/
     height: 80%;
     object-fit: contain;
 }
@@ -665,12 +665,12 @@ body {
     white-space: nowrap;
 }
 
-/* 途经点容器 */
+/* 途经点容�?*/
 .waypoints-container {
     margin-top: 0;
     display: flex;
     flex-direction: column;
-    gap: 0; /* 与起点/终点行保持一致的紧凑间距 */
+    gap: 0; /* 与起�?终点行保持一致的紧凑间距 */
 }
 
 .waypoint-row {
@@ -682,11 +682,11 @@ body {
 
 .waypoint-row .location-item {
     flex: 1;
-    padding: 14px 12px 14px 16px; /* 与起点/终点一致 */
+    padding: 14px 12px 14px 16px; /* 与起�?终点一�?*/
     border-bottom: none; /* 由父级控制下划线 */
 }
 
-/* 删除途径点按钮 */
+/* 删除途径点按�?*/
 .remove-waypoint-btn {
     width: 28px;
     height: 28px;
@@ -730,7 +730,7 @@ body {
     display: flex;
 }
 
-/* 面板内容区 */
+/* 面板内容�?*/
 .picker-content {
     flex: 1;
     display: flex;
@@ -738,7 +738,7 @@ body {
     padding: 20px;
     overflow-y: auto;
     gap: 20px;
-    /* 隐藏滚动条 */
+    /* 隐藏滚动�?*/
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE and Edge */
 }
@@ -749,7 +749,7 @@ body {
     padding-right: 120px; /* 预留右侧悬浮控件宽度 */
 }
 
-/* has-right-add 状态下，交换按钮左移，避免与右侧悬浮控件重叠 */
+/* has-right-add 状态下，交换按钮左移，避免与右侧悬浮控件重�?*/
 .picker-content.has-right-add .picker-swap-btn {
     right: 64px;
 }
@@ -780,9 +780,9 @@ body {
     border: 1px solid #e6e9ef;
     border-radius: 12px;
     background: #fff;
-    position: relative; /* 让切换按钮以整个盒子为参照居中定位 */
+    position: relative; /* 让切换按钮以整个盒子为参照居中定�?*/
     padding-right: 56px; /* 预留按钮空间 */
-    margin-bottom: 8px; /* 移除最外层卡片后，增加与下方元素间距 */
+    margin-bottom: 8px; /* 移除最外层卡片后，增加与下方元素间�?*/
 }
 
 .picker-location-inputs {
@@ -826,9 +826,7 @@ body {
 }
 
 /* 点位选择页面“我的位置”占位符蓝色 */
-#picker-start-location::placeholder {
-    color: #2A86FF;
-}
+#picker-start-location::placeholder { color: #999; }
 
 .picker-divider-line {
     display: flex;
@@ -857,7 +855,7 @@ body {
     justify-content: center;
     cursor: pointer;
     transition: all 0.2s ease;
-    position: absolute; /* 固定在输入盒子右侧中部 */
+    position: absolute; /* 固定在输入盒子右侧中�?*/
     right: 12px;
     top: 50%;
     transform: translateY(-50%);
@@ -879,32 +877,32 @@ body {
 }
 
 .picker-add-waypoint {
-    position: static;            /* 不再悬浮在右侧 */
+    position: static;            /* 不再悬浮在右�?*/
     right: auto;
     top: auto;
     transform: none;
-    display: flex;               /* 左侧“添加途径点” + 右侧“完成” */
+    display: flex;               /* 左侧“添加途径点�?+ 右侧“完成�?*/
     flex-direction: row;
     align-items: center;
     justify-content: space-between; /* 右侧完成按钮在最右边 */
     gap: 8px;
-    padding-left: 4px;           /* 与输入内容轻微对齐 */
-    margin-top: 8px;             /* 与输入卡片保持间距 */
+    padding-left: 4px;           /* 与输入内容轻微对�?*/
+    margin-top: 8px;             /* 与输入卡片保持间�?*/
 }
 
-.picker-add-left { /* 左侧（图标+文案） */
+.picker-add-left { /* 左侧（图�?文案�?*/
     display: flex;
     flex-direction: row;
     align-items: center;
     gap: 8px;
 }
 
-/* 右侧的完成按钮（要求的配色与圆角） */
+/* 右侧的完成按钮（要求的配色与圆角�?*/
 .picker-add-complete-btn {
     background: #2A86FF;
     color: #fff;
     border: none;
-    border-radius: 999px; /* 等同于 999px 999px 999px 999px */
+    border-radius: 999px; /* 等同�?999px 999px 999px 999px */
     width: 103px;
     height: 30px;
     padding: 0;
@@ -959,7 +957,7 @@ body {
     color: #143662;
 }
 
-/* 下方“添加途径点”文案（两行） */
+/* 下方“添加途径点”文案（两行�?*/
 .picker-labels {
     display: flex;
     flex-direction: column;
@@ -990,7 +988,7 @@ body {
     font-style: normal;
     text-transform: none;
     font-weight: 400;
-    white-space: nowrap; /* 一行显示 */
+    white-space: nowrap; /* 一行显�?*/
 }
 
 /* 路线规划页右侧悬浮的添加途径点控件（当从首页点击起点/终点进入时显示） */
@@ -1013,7 +1011,7 @@ body {
     color: #666;
 }
 
-/* 途经点容器 */
+/* 途经点容�?*/
 .picker-waypoints-container {
     display: flex;
     flex-direction: column;
@@ -1024,7 +1022,7 @@ body {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 0; /* 与其他输入行一致 */
+    margin-top: 0; /* 与其他输入行一�?*/
     position: relative; /* 用伪元素绘制与分隔线等长的下划线 */
 }
 
@@ -1034,7 +1032,7 @@ body {
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 14px 12px 14px 16px; /* 与 .picker-location-row 一致 */
+    padding: 14px 12px 14px 16px; /* �?.picker-location-row 一�?*/
     box-shadow: none;
 }
 
@@ -1102,7 +1100,7 @@ body {
     box-shadow: 0 2px 8px rgba(42,134,255,0.25);
 }
 
-/* 内联编辑行容器（与其他行对齐） */
+/* 内联编辑行容器（与其他行对齐�?*/
 .picker-inline-waypoint-row {
     display: flex;
     align-items: center;
@@ -1144,7 +1142,7 @@ body {
 
 .picker-category-tags {
     display: flex;
-    flex-wrap: wrap; /* 标签自动换行以占满一行 */
+    flex-wrap: wrap; /* 标签自动换行以占满一�?*/
     gap: 8px;
     overflow-x: visible; /* 不使用横向滚动，保持满行布局 */
 }
@@ -1183,7 +1181,7 @@ body {
     overflow: hidden;
     max-height: 400px;
     overflow-y: auto;
-    /* 隐藏滚动条 */
+    /* 隐藏滚动�?*/
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE and Edge */
 }
@@ -1218,7 +1216,7 @@ body {
     color: #007bff;
 }
 
-/* 使用图片替换“我的位置”图标 */
+/* 使用图片替换“我的位置”图�?*/
 .picker-location-item .icon-my-location {
     width: 18px;
     height: 18px;
@@ -1272,7 +1270,7 @@ body {
     height: 18px;
     border: none;
     background-color: transparent;
-    background-image: url('../images/工地数字导航小程序切图/司机/2X/导航/添加地点.png');
+    background-image: url('../images/工地数字导航小程序切�?司机/2X/导航/添加地点.png');
     background-repeat: no-repeat;
     background-position: center;
     background-size: contain;
@@ -1282,7 +1280,7 @@ body {
     flex-shrink: 0;
     transition: transform 0.2s ease;
     padding: 0;
-    font-size: 0; /* 隐藏可能的文本内容 */
+    font-size: 0; /* 隐藏可能的文本内�?*/
 }
 
 .picker-add-icon:hover { transform: scale(1.1); }
@@ -1292,7 +1290,7 @@ body {
 .waypoint-row {
     display: flex;
     align-items: center;
-    padding: 0; /* 与 location-item 行一致，由子项控制内边距 */
+    padding: 0; /* �?location-item 行一致，由子项控制内边距 */
     gap: 8px;
     position: relative; /* 用伪元素绘制与分隔线等长的下划线 */
 }
@@ -1381,7 +1379,7 @@ body {
     height: 60px;
     pointer-events: auto;
     width: 100%;
-    max-width: 480px; /* 限制最大宽度 */
+    max-width: 480px; /* 限制最大宽�?*/
     margin: 0 auto; /* 居中 */
 }
 
@@ -1418,7 +1416,7 @@ body {
     margin-bottom: 4px;
 }
 
-/* 地图控制按钮组 */
+/* 地图控制按钮�?*/
 .map-controls {
     position: absolute;
     bottom: 240px;
@@ -1457,7 +1455,7 @@ body {
 }
 
 
-/* 响应式调整 - 保持一致的视觉效果 */
+/* 响应式调�?- 保持一致的视觉效果 */
 /* 针对小高度设备（如横屏手机、小屏手机） */
 @media (max-height: 700px) {
     .map-controls {
@@ -1465,7 +1463,7 @@ body {
     }
 }
 
-/* 针对超小高度设备（如横屏模式） */
+/* 针对超小高度设备（如横屏模式�?*/
 @media (max-height: 500px) {
     .search-container {
         top: 10px;
@@ -1540,11 +1538,11 @@ body {
         padding: 10px 20px; /* 保持左右 20px */
         max-height: 40vh;
         overflow-y: auto;
-        max-width: 480px; /* 限制最大宽度 */
+        max-width: 480px; /* 限制最大宽�?*/
         margin: 0 auto; /* 居中 */
     }
 
-    /* 保持默认的 60px 高度 */
+    /* 保持默认�?60px 高度 */
 }
 
 /* 针对带刘海或打孔屏的手机 */
@@ -1572,9 +1570,9 @@ body {
     }
 }
 
-/* 大屏设备导航栏优化 - 已移除，保持 480px 手机样式 */
+/* 大屏设备导航栏优�?- 已移除，保持 480px 手机样式 */
 
-/* 适配超长屏设备（如全面屏手机） */
+/* 适配超长屏设备（如全面屏手机�?*/
 @media (aspect-ratio: 2/3) {
     .map-controls {
         bottom: 220px;

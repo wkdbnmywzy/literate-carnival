@@ -298,6 +298,7 @@ const NavCore = (function() {
 
     /**
      * 规划路线（支持途径点的多段路线规划）
+     * 【问题7优化】当起点是"我的位置"且不在道路上时，自动找到最近的道路点作为实际起点
      */
     function planRoute() {
         try {
@@ -306,13 +307,51 @@ const NavCore = (function() {
                 return;
             }
 
-            const startPos = routeData.start.position;
+            let startPos = routeData.start.position;
             const endPos = routeData.end.position;
             const waypoints = routeData.waypoints || [];
 
             const syncSuccess = syncKMLLayersToGlobal();
             if (!syncSuccess) {
                 console.warn('[NavCore] KML图层同步失败');
+            }
+
+            // 【问题7】检查起点是否是"我的位置"，如果是，检查是否在道路上
+            const isMyLocationStart = routeData.start.name === '我的位置' || 
+                                      routeData.start.isMyLocation === true;
+            
+            if (isMyLocationStart && typeof findNearestKMLSegment === 'function') {
+                // 构建KML图（如果还没构建）
+                if (!window.kmlGraph && typeof buildKMLGraph === 'function') {
+                    buildKMLGraph();
+                }
+                
+                // 查找最近的道路点
+                const nearestSegment = findNearestKMLSegment(startPos);
+                if (nearestSegment) {
+                    const distanceToRoad = nearestSegment.distance;
+                    console.log(`[NavCore] 我的位置距离最近道路: ${distanceToRoad.toFixed(2)}米`);
+                    
+                    // 如果距离道路超过5米，使用投影点作为实际起点
+                    if (distanceToRoad > 5) {
+                        const projPoint = nearestSegment.projectionPoint;
+                        const actualStartPos = [projPoint.lng, projPoint.lat];
+                        
+                        console.log(`[NavCore] 我的位置不在道路上，实际起点调整为最近道路点:`, actualStartPos);
+                        
+                        // 保存原始位置和实际起点，用于引导
+                        routeData.start.originalPosition = startPos;
+                        routeData.start.actualStartPosition = actualStartPos;
+                        routeData.start.distanceToRoad = distanceToRoad;
+                        
+                        // 使用实际起点进行路线规划
+                        startPos = actualStartPos;
+                    } else {
+                        console.log(`[NavCore] 我的位置在道路上或附近，直接使用`);
+                        routeData.start.actualStartPosition = null;
+                        routeData.start.distanceToRoad = distanceToRoad;
+                    }
+                }
             }
 
             // 构建路线点序列
@@ -1051,10 +1090,10 @@ const NavCore = (function() {
 
             console.log(`[分段点集] 当前段点集: ${segmentPointSet.length}个点, 转向点: ${segmentTurningPoints.length}个（重新计算）`);
 
-            // 【调试】显示转向点标签
-            if (NavRenderer && NavRenderer.showTurningPointLabels) {
-                NavRenderer.showTurningPointLabels(segmentTurningPoints, segmentPointSet);
-            }
+            // 【调试】转向点标签已禁用
+            // if (NavRenderer && NavRenderer.showTurningPointLabels) {
+            //     NavRenderer.showTurningPointLabels(segmentTurningPoints, segmentPointSet);
+            // }
         } catch (e) {
             console.error('[分段点集] 生成失败:', e);
         }
@@ -1085,6 +1124,13 @@ const NavCore = (function() {
             }
 
             console.log('[NavCore] 当前位置已获取:', currentPosition);
+
+            // 【新增】移动地图视野到用户当前位置
+            const mapInstance = NavRenderer.getMap();
+            if (mapInstance) {
+                mapInstance.setZoomAndCenter(17, currentPosition, false, 500);
+                console.log('[NavCore] 地图已移动到用户位置');
+            }
 
             // 绘制从当前位置到起点的蓝色指引线
             drawGuidanceToStart(currentPosition);
@@ -1204,13 +1250,15 @@ const NavCore = (function() {
 
     /**
      * 绘制从当前位置到起点的蓝色指引线
+     * 【问题7优化】如果有实际起点（最近道路点），引导到实际起点
      * @param {Array} currentPos - [lng, lat]
      */
     function drawGuidanceToStart(currentPos) {
         try {
             if (!routeData || !routeData.start) return;
 
-            const startPos = routeData.start.position;
+            // 优先使用实际起点（最近道路点），否则使用原始起点
+            const startPos = routeData.start.actualStartPosition || routeData.start.position;
 
             // 计算距离
             const distance = NavGPS.calculateDistance(currentPos, startPos);
@@ -2172,15 +2220,15 @@ const NavCore = (function() {
                 NavRenderer.setHeadingUpMode(position, targetBearing, true);
             }
 
-            // 【调试】显示方向箭头
-            const pointSet = window.currentSegmentPointSet;
-            if (pointSet && currentIndex >= 0 && currentIndex < pointSet.length - 1) {
-                const currentPos = pointSet[currentIndex].position;
-                const nextPos = pointSet[currentIndex + 1].position;
-                if (NavRenderer.showDirectionArrow) {
-                    NavRenderer.showDirectionArrow(currentPos, nextPos, targetBearing);
-                }
-            }
+            // 【调试】方向箭头已禁用
+            // const pointSet = window.currentSegmentPointSet;
+            // if (pointSet && currentIndex >= 0 && currentIndex < pointSet.length - 1) {
+            //     const currentPos = pointSet[currentIndex].position;
+            //     const nextPos = pointSet[currentIndex + 1].position;
+            //     if (NavRenderer.showDirectionArrow) {
+            //         NavRenderer.showDirectionArrow(currentPos, nextPos, targetBearing);
+            //     }
+            // }
         } catch (e) {
             console.error('[地图旋转] 执行失败:', e);
         }
@@ -2439,11 +2487,15 @@ const NavCore = (function() {
             }
 
             // 3. 处理未到达起点的情况（绘制蓝色引导线）
+            // 【问题7优化】引导线连接用户位置和绿色路线的起点（路线第一个点）
             if (!hasReachedStart) {
-                const startPos = routeData.start.position;
+                // 使用路线的第一个点作为引导目标（绿色路线的起点）
+                const routeFirstPoint = navigationPath && navigationPath.length > 0 ? navigationPath[0] : null;
+                const startPos = routeFirstPoint || routeData.start.actualStartPosition || routeData.start.position;
                 const distanceToStart = haversineDistance(
                     position[1], position[0],
-                    startPos[1], startPos[0]
+                    Array.isArray(startPos) ? startPos[1] : startPos.lat,
+                    Array.isArray(startPos) ? startPos[0] : startPos.lng
                 );
 
                 // 计算稳定朝向：优先设备方向；否则使用与上一点的方位角；小于0.5m不更新

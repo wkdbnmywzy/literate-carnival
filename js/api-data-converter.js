@@ -37,10 +37,10 @@ const APIDataConverter = {
         if (points && points.length > 0) {
             this.log('\n--- 点数据解析 ---');
             points.forEach((point, index) => {
-                // 过滤掉 new_point / new point 类型的点（不区分大小写）
+                // 过滤掉 new_point / new point / 新建 Point 类型的点（不区分大小写）
                 const pointName = (point.point_name || point.name || '').toLowerCase();
-                if (pointName.includes('new_point') || pointName.includes('new point')) {
-                    this.log(`点[${index}] 跳过(new_point类型): ${point.point_name}`);
+                if (pointName.includes('new_point') || pointName.includes('new point') || pointName.includes('新建 point') || pointName.includes('新建point')) {
+                    this.log(`点[${index}] 跳过(newpoint类型): ${point.point_name}`);
                     return;
                 }
                 

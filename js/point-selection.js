@@ -517,9 +517,18 @@ document.addEventListener('click', function(e) {
 document.addEventListener('click', function(e) {
     const locationItem = e.target.closest('.picker-location-item');
     if (locationItem) {
+        // 【修复】在处理点击之前，先保存当前的输入类型
+        // 避免点击时触发其他元素的 focus 事件导致 currentInputType 被改变
+        const savedInputType = currentInputType;
+        const savedActiveInput = currentActiveInput;
+        
         const locationText = locationItem.querySelector('.picker-location-text')?.textContent ||
                            locationItem.querySelector('.picker-location-name')?.textContent;
         if (locationText) {
+            // 恢复保存的输入类型（防止被其他事件干扰）
+            currentInputType = savedInputType;
+            currentActiveInput = savedActiveInput;
+            console.log('[点击地点] 使用保存的输入类型:', savedInputType);
             selectLocationFromPicker(locationText, locationItem);
         }
     }
@@ -725,6 +734,11 @@ function selectLocationFromPicker(locationText, locationItem) {
     console.log('从面板选择地点:', locationText);
     console.log('当前输入类型:', currentInputType);
 
+    // 【调试】打印更新前的值
+    const pickerStartBefore = document.getElementById('picker-start-location')?.value;
+    const pickerEndBefore = document.getElementById('picker-end-location')?.value;
+    console.log('[调试] 更新前 - 起点:', pickerStartBefore, '终点:', pickerEndBefore);
+
     // 根据当前活动的输入框设置值
     if (currentInputType === 'start') {
         const startInput = document.getElementById('start-location');
@@ -732,10 +746,11 @@ function selectLocationFromPicker(locationText, locationItem) {
 
         if (startInput) {
             startInput.value = locationText;
-            console.log('已更新起点输入框值为:', locationText);
+            console.log('已更新起点输入框(start-location)值为:', locationText);
         }
         if (pickerStartInput) {
             pickerStartInput.value = locationText;
+            console.log('已更新起点输入框(picker-start-location)值为:', locationText);
         }
     } else if (currentInputType === 'end') {
         const endInput = document.getElementById('end-location');
@@ -743,10 +758,11 @@ function selectLocationFromPicker(locationText, locationItem) {
 
         if (endInput) {
             endInput.value = locationText;
-            console.log('已更新终点输入框值为:', locationText);
+            console.log('已更新终点输入框(end-location)值为:', locationText);
         }
         if (pickerEndInput) {
             pickerEndInput.value = locationText;
+            console.log('已更新终点输入框(picker-end-location)值为:', locationText);
         }
     } else if (currentInputType === 'waypoint' && currentActiveInput) {
         // 处理途径点选择
@@ -755,7 +771,14 @@ function selectLocationFromPicker(locationText, locationItem) {
             waypointInput.value = locationText;
             console.log('已更新途径点输入框值为:', locationText);
         }
+    } else {
+        console.warn('[警告] currentInputType 无效:', currentInputType);
     }
+
+    // 【调试】打印更新后的值
+    const pickerStartAfter = document.getElementById('picker-start-location')?.value;
+    const pickerEndAfter = document.getElementById('picker-end-location')?.value;
+    console.log('[调试] 更新后 - 起点:', pickerStartAfter, '终点:', pickerEndAfter);
 
     // 如果是"我的位置"，则使用当前定位
     if (locationText === '我的位置') {

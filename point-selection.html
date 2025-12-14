@@ -17,7 +17,7 @@
                     <div class="picker-location-inputs">
                         <div class="picker-location-row">
                             <i class="fas fa-circle picker-start-icon"></i>
-                            <input type="text" placeholder="我的位置" id="picker-start-location">
+                            <input type="text" placeholder="请输入起点" id="picker-start-location">
                         </div>
                         <div class="picker-divider-line">
                             <button class="picker-swap-btn" id="picker-swap-btn">
@@ -291,16 +291,8 @@
         // 渲染分类标签（建筑/区域）
         renderCategoryTags();
 
-        // 为"我的位置"添加点击事件
-        const myLocationItem = document.querySelector('.picker-location-item');
-        if (myLocationItem) {
-            myLocationItem.addEventListener('click', function() {
-                const activeInput = getCurrentActiveInput();
-                if (activeInput) {
-                    activeInput.value = '我的位置';
-                }
-            });
-        }
+        // 【已移除】"我的位置"点击事件由 point-selection.js 统一处理
+        // 避免重复绑定导致起点终点同时被更新
     });
 
     // 恢复路线数据
@@ -341,29 +333,39 @@
                 }
             } else {
                 // 如果不是自动添加途径点，则根据 activeInput 和 inputType 自动聚焦
-                if (data.activeInput && data.inputType) {
-                    console.log('自动聚焦到输入框:', data.activeInput, '类型:', data.inputType);
-                    setTimeout(() => {
-                        let inputElement = null;
+                // 【修复】如果没有指定 inputType，默认为 'start'
+                const targetInputType = data.inputType || 'start';
+                const targetActiveInput = data.activeInput || 'start-location';
+                
+                console.log('自动聚焦到输入框:', targetActiveInput, '类型:', targetInputType);
+                setTimeout(() => {
+                    let inputElement = null;
 
-                        if (data.inputType === 'start') {
-                            inputElement = document.getElementById('picker-start-location');
-                        } else if (data.inputType === 'end') {
-                            inputElement = document.getElementById('picker-end-location');
-                        } else if (data.inputType === 'waypoint') {
-                            // 对于途径点，聚焦到最后一个途径点输入框
-                            const waypointInputs = document.querySelectorAll('.picker-waypoint-input');
-                            if (waypointInputs.length > 0) {
-                                inputElement = waypointInputs[waypointInputs.length - 1];
-                            }
-                        }
+                    // 【修复】在调用 focus() 之前先设置 currentInputType
+                    // 避免 focus 事件处理器中的条件判断出错
+                    if (typeof currentInputType !== 'undefined') {
+                        currentInputType = targetInputType;
+                        currentActiveInput = targetActiveInput;
+                        console.log('预设 currentInputType:', currentInputType);
+                    }
 
-                        if (inputElement) {
-                            inputElement.focus();
-                            console.log('已聚焦到输入框');
+                    if (targetInputType === 'start') {
+                        inputElement = document.getElementById('picker-start-location');
+                    } else if (targetInputType === 'end') {
+                        inputElement = document.getElementById('picker-end-location');
+                    } else if (targetInputType === 'waypoint') {
+                        // 对于途径点，聚焦到最后一个途径点输入框
+                        const waypointInputs = document.querySelectorAll('.picker-waypoint-input');
+                        if (waypointInputs.length > 0) {
+                            inputElement = waypointInputs[waypointInputs.length - 1];
                         }
-                    }, 150);
-                }
+                    }
+
+                    if (inputElement) {
+                        inputElement.focus();
+                        console.log('已聚焦到输入框');
+                    }
+                }, 150);
             }
         } catch (e) {
             console.error('恢复路线数据失败:', e);
