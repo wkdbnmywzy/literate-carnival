@@ -236,7 +236,6 @@ function clearMarkers() {
     });
     markers = [];
 }
-
 // 运行时动态角度偏移与校准状态（用于自动修正稳定的180°反向问题）
 let dynamicAngleOffset = 0; // 0 或 180
 let calibrationState = { count0: 0, count180: 0, locked: false };
@@ -278,13 +277,6 @@ function applyHeadingToMarker(rawHeading) {
     } catch (err) {
         console.error('应用朝向到标记失败:', err);
     }
-}
-
-function clearMarkers() {
-    markers.forEach(function(marker) {
-        map.remove(marker);
-    });
-    markers = [];
 }
 
 // ====== 首页地图：实时定位与箭头随手机方向旋转 ======
