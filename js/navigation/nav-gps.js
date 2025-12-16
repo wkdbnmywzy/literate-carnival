@@ -504,6 +504,32 @@ const NavGPS = (function() {
     }
 
     /**
+     * 确保GPS监听正在运行（熄屏恢复后调用）
+     * 如果监听已停止，重新启动
+     */
+    function ensureWatching() {
+        try {
+            if (watchId === null && onPositionUpdate) {
+                console.log('[NavGPS] GPS监听已停止，正在重新启动...');
+                watchId = navigator.geolocation.watchPosition(
+                    handlePosition,
+                    handleError,
+                    {
+                        enableHighAccuracy: config.highAccuracy,
+                        timeout: config.timeout,
+                        maximumAge: 0
+                    }
+                );
+                console.log('[NavGPS] GPS监听已重新启动');
+            } else {
+                console.log('[NavGPS] GPS监听正常运行中');
+            }
+        } catch (e) {
+            console.error('[NavGPS] 确保GPS监听失败:', e);
+        }
+    }
+
+    /**
      * 获取当前状态
      * @returns {Object}
      */
@@ -534,6 +560,7 @@ const NavGPS = (function() {
         checkAndRequestPermission,
         startWatch,
         stopWatch,
+        ensureWatching,
         clearHistory,
         validatePosition,
         calculateDistance,

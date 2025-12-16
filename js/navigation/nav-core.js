@@ -226,6 +226,9 @@ const NavCore = (function() {
             // 初始化设备方向监听（用于起点前“我的位置”图标朝向）
             initDeviceOrientationListener();
 
+            // 初始化熄屏/亮屏监测
+            initVisibilityChangeListener();
+
             map.on('complete', onMapComplete);
             NavGuidance.init();
 
@@ -233,6 +236,69 @@ const NavCore = (function() {
         } catch (e) {
             console.error('[NavCore] 初始化失败:', e);
             return false;
+        }
+    }
+
+    // 熄屏监测相关
+    let lastVisibilityChangeTime = 0;
+    let wasHidden = false;
+
+    /**
+     * 初始化熄屏/亮屏监测
+     */
+    function initVisibilityChangeListener() {
+        try {
+            document.addEventListener('visibilitychange', function() {
+                const now = Date.now();
+                if (document.hidden) {
+                    wasHidden = true;
+                    lastVisibilityChangeTime = now;
+                    console.log('[熄屏监测] 页面隐藏');
+                } else {
+                    if (wasHidden && isNavigating) {
+                        const hiddenDuration = now - lastVisibilityChangeTime;
+                        console.log(`[熄屏监测] 页面恢复可见，隐藏时长: ${(hiddenDuration / 1000).toFixed(1)}秒`);
+                        if (hiddenDuration > 2000) {
+                            console.log('[熄屏监测] 重新获取GPS位置...');
+                            refreshGPSPosition();
+                        }
+                    }
+                    wasHidden = false;
+                }
+            });
+            console.log('[NavCore] 熄屏监测已初始化');
+        } catch (e) {
+            console.error('[NavCore] 熄屏监测初始化失败:', e);
+        }
+    }
+
+    /**
+     * 刷新GPS位置（熄屏恢复后调用）
+     */
+    function refreshGPSPosition() {
+        try {
+            // 1. 立即获取一次最新位置
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lng = pos.coords.longitude;
+                    const lat = pos.coords.latitude;
+                    const accuracy = pos.coords.accuracy;
+                    const converted = NavGPS.convertCoordinates(lng, lat);
+                    console.log('[熄屏监测] GPS位置刷新成功:', converted, `精度:${accuracy}米`);
+                    onGPSUpdate(converted, accuracy, 0);
+                },
+                (error) => {
+                    console.warn('[熄屏监测] GPS位置刷新失败:', error.message);
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+
+            // 2. 确保GPS持续监听正常工作（某些设备熄屏后可能停止）
+            if (NavGPS && typeof NavGPS.ensureWatching === 'function') {
+                NavGPS.ensureWatching();
+            }
+        } catch (e) {
+            console.error('[熄屏监测] 刷新GPS失败:', e);
         }
     }
 
@@ -1558,8 +1624,9 @@ const NavCore = (function() {
     /**
      * 更新导航提示（核心逻辑 - 简化版）
      * @param {number} currentIndex - 当前点索引（段内相对索引）
+     * @param {Array} currentPosition - 当前GPS位置 [lng, lat]（可选，用于更准确的距离计算）
      */
-    function updateNavigationGuidance(currentIndex) {
+    function updateNavigationGuidance(currentIndex, currentPosition) {
         try {
             const pointSet = window.currentSegmentPointSet;
             const turningPoints = window.currentSegmentTurningPoints;
@@ -1598,13 +1665,47 @@ const NavCore = (function() {
                 return;
             }
 
-            // 计算到下一个转向点的距离
+            // 计算到下一个转向点的距离（沿路线距离）
+            // 从当前吸附点开始，沿点集累加到转向点
             let distanceToTurn = 0;
+            
+            // 如果有当前位置，先计算当前位置到吸附点的距离（可能是负的，表示已超过吸附点）
+            if (currentPosition && currentIndex >= 0 && currentIndex < pointSet.length) {
+                const snappedPos = pointSet[currentIndex].position;
+                // 计算当前位置到吸附点的距离
+                const distToSnapped = haversineDistance(
+                    currentPosition[1], currentPosition[0],
+                    snappedPos[1], snappedPos[0]
+                );
+                
+                // 如果当前位置更接近下一个点，说明已经超过了吸附点
+                if (currentIndex < pointSet.length - 1) {
+                    const nextPos = pointSet[currentIndex + 1].position;
+                    const distToNext = haversineDistance(
+                        currentPosition[1], currentPosition[0],
+                        nextPos[1], nextPos[0]
+                    );
+                    const segmentDist = haversineDistance(
+                        snappedPos[1], snappedPos[0],
+                        nextPos[1], nextPos[0]
+                    );
+                    
+                    // 如果到下一个点的距离小于到吸附点的距离，减去已走过的部分
+                    if (distToNext < distToSnapped && distToSnapped < segmentDist) {
+                        distanceToTurn -= (segmentDist - distToNext);
+                    }
+                }
+            }
+            
+            // 累加从吸附点到转向点的路线距离
             for (let i = currentIndex; i < nextTurnPoint.pointIndex && i < pointSet.length - 1; i++) {
                 const p1 = pointSet[i].position;
                 const p2 = pointSet[i + 1].position;
                 distanceToTurn += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
             }
+            
+            // 确保距离不为负
+            distanceToTurn = Math.max(0, distanceToTurn);
 
             // 计算两个转向点之间的总距离
             let totalDistanceBetweenTurns = distanceToTurn;
@@ -1653,106 +1754,56 @@ const NavCore = (function() {
                 }
             }
 
-            // 掉头特殊处理：到达掉头点后播报
-            if (nextTurnPoint.turnType === 'uturn') {
-                // 1. 到达掉头点附近（距离≤6米）：直接播报掉头
-                // 修复：确保在转向点之前播报，不要等到过了转向点
-                const isNearUturnPoint = (currentIndex < nextTurnPoint.pointIndex && distanceToTurn <= 6) ||
-                                        (currentIndex === nextTurnPoint.pointIndex);
+            // 【简化】统一的两阶段播报逻辑：
+            // 阶段1：距离≤15米时，播报"前方准备xx"
+            // 阶段2：距离≤5米或前2个点时，播报"xx"
+            
+            // 阶段2：距离≤5米或到达转向点前2个点，播报执行指令
+            const isVeryNear = (distanceToTurn <= 5) || 
+                              (currentIndex >= nextTurnPoint.pointIndex - 2 && currentIndex < nextTurnPoint.pointIndex);
+            
+            if (isVeryNear) {
+                if (!hasPromptedBefore) {
+                    const guidance = {
+                        type: nextTurnPoint.turnType,
+                        action: turnAction,
+                        distance: Math.round(distanceToTurn),
+                        message: turnAction
+                    };
+                    updateGuidanceUI(guidance);
+                    NavTTS.speak(turnAction, { force: true });
+                    hasPromptedBefore = true;
+                    lastGuidanceTime = now;
 
-                if (isNearUturnPoint) {
-                    if (!hasPromptedBefore) {
-                        const guidance = {
-                            type: nextTurnPoint.turnType,
-                            action: turnAction,
-                            distance: 0,
-                            message: turnAction
-                        };
-                        updateGuidanceUI(guidance);
-                        NavTTS.speak(turnAction, { force: true }); // 强制播报
-                        hasPromptedBefore = true;
-                        lastGuidanceTime = now;
-
-                        // 【转弯校验】播报掉头，进入转弯阶段，设置5秒后结束
-                        isTurningPhase = true;
-                        turningPhaseEndTime = now + 5000;
-                        console.log('[转弯校验] 播报掉头，进入转弯阶段，5秒后结束');
-
-                        console.log(`[掉头播报] ${turnAction}, 当前索引=${currentIndex}, 掉头点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
-                    }
-                    return;
+                    // 进入转弯阶段
+                    isTurningPhase = true;
+                    turningPhaseEndTime = now + 5000;
+                    
+                    console.log(`[转向播报] ${turnAction}, 索引=${currentIndex}/${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                 }
+                return;
+            }
+            
+            // 阶段1：距离≤15米且>5米时，播报"前方准备xx"
+            if (distanceToTurn <= 15 && distanceToTurn > 5) {
+                if (!hasPrompted1_4) {
+                    const guidance = {
+                        type: nextTurnPoint.turnType,
+                        action: turnAction,
+                        distance: Math.round(distanceToTurn),
+                        message: `前方准备${turnAction}`
+                    };
+                    updateGuidanceUI(guidance);
+                    NavTTS.speak(`前方准备${turnAction}`, { force: true });
+                    hasPrompted1_4 = true;
+                    lastGuidanceTime = now;
 
-                // 2. 距离掉头点1/4距离：提前播报（除非太近）
-                if (!isTooClose && distanceToTurn <= quarterDistance * 1.2 && distanceToTurn > quarterDistance * 0.8) {
-                    if (!hasPrompted1_4) {
-                        const guidance = {
-                            type: nextTurnPoint.turnType,
-                            action: turnAction,
-                            distance: Math.round(distanceToTurn),
-                            message: `前方准备${turnAction}`
-                        };
-                        updateGuidanceUI(guidance);
-                        NavTTS.speak(`前方准备${turnAction}`, { force: true }); // 强制播报
-                        hasPrompted1_4 = true;
-                        lastGuidanceTime = now;
-
-                        // 【转弯校验】进入转弯准备阶段（掉头）
-                        isTurningPhase = true;
-                        console.log('[转弯校验] 进入转弯准备阶段（掉头）');
-                    }
-                    return;
+                    // 进入转弯准备阶段
+                    isTurningPhase = true;
+                    
+                    console.log(`[转向预警] 前方准备${turnAction}, 索引=${currentIndex}/${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
                 }
-            } else {
-                // 左转/右转处理：提前播报
-                // 1. 到达转向点附近（距离≤8米且在转向点之前）：直接播报转向
-                // 修复：确保在转向点之前播报，距离阈值从4米增加到8米，避免车速快时错过
-                const isNearTurnPoint = (currentIndex < nextTurnPoint.pointIndex && distanceToTurn <= 8) ||
-                                       (currentIndex === nextTurnPoint.pointIndex - 1);
-
-                if (isNearTurnPoint) {
-                    if (!hasPromptedBefore) {
-                        const guidance = {
-                            type: nextTurnPoint.turnType,
-                            action: turnAction,
-                            distance: Math.round(distanceToTurn),
-                            message: turnAction
-                        };
-                        updateGuidanceUI(guidance);
-                        NavTTS.speak(turnAction, { force: true }); // 强制播报
-                        hasPromptedBefore = true;
-                        lastGuidanceTime = now;
-
-                        // 【转弯校验】播报转弯，进入转弯阶段，设置5秒后结束
-                        isTurningPhase = true;
-                        turningPhaseEndTime = now + 5000;
-                        console.log('[转弯校验] 播报转弯，进入转弯阶段，5秒后结束');
-
-                        console.log(`[转向播报] ${turnAction}, 当前索引=${currentIndex}, 转向点索引=${nextTurnPoint.pointIndex}, 距离=${distanceToTurn.toFixed(1)}米`);
-                    }
-                    return;
-                }
-
-                // 2. 距离转向点1/4距离：提前播报（除非太近）
-                if (!isTooClose && distanceToTurn <= quarterDistance * 1.2 && distanceToTurn > quarterDistance * 0.8) {
-                    if (!hasPrompted1_4) {
-                        const guidance = {
-                            type: nextTurnPoint.turnType,
-                            action: turnAction,
-                            distance: Math.round(distanceToTurn),
-                            message: `前方准备${turnAction}`
-                        };
-                        updateGuidanceUI(guidance);
-                        NavTTS.speak(`前方准备${turnAction}`, { force: true }); // 强制播报
-                        hasPrompted1_4 = true;
-                        lastGuidanceTime = now;
-
-                        // 【转弯校验】进入转弯准备阶段（左转/右转）
-                        isTurningPhase = true;
-                        console.log('[转弯校验] 进入转弯准备阶段（左转/右转）');
-                    }
-                    return;
-                }
+                return;
             }
 
             // 3. 默认：显示距离和方向（只更新UI，不播报）
@@ -2101,6 +2152,8 @@ const NavCore = (function() {
     // 实时校验相关状态
     let forceSecondaryCheck = false;     // 是否强制立即执行校验（偏离回归后）
     let lastAlignedBearing = null;       // 上次对齐的道路方向（用于平滑过渡）
+    let lastRotationTime = 0;            // 上次旋转时间（用于防抖）
+    let smoothedBearing = null;          // 平滑后的方向角
 
     /**
      * 【简化重写】计算当前位置的地图旋转角度
@@ -2188,7 +2241,7 @@ const NavCore = (function() {
 
     /**
      * 【重写】实时道路对齐：确保道路始终竖直显示
-     * 简化逻辑：直接用calculateMapRotation计算的角度旋转地图
+     * 优化：添加角度平滑和时间防抖，避免跳跃飘移
      * 
      * @param {Array} position - 当前位置 [lng, lat]
      * @param {number} currentIndex - 当前吸附点索引
@@ -2198,13 +2251,15 @@ const NavCore = (function() {
             const map = NavRenderer.getMap();
             if (!map) return;
             
+            const now = Date.now();
+            
             // 计算目标旋转角度
             const targetBearing = calculateMapRotation(currentIndex);
             
             // 获取当前地图旋转角度
             const currentRotation = map.getRotation() || 0;
             
-            // 归一化角度差
+            // 归一化角度到 -180 ~ 180
             const normalize = (angle) => {
                 angle = angle % 360;
                 if (angle > 180) angle -= 360;
@@ -2212,23 +2267,46 @@ const NavCore = (function() {
                 return angle;
             };
             
-            const angleDiff = Math.abs(normalize(targetBearing - currentRotation));
-            
-            // 只有角度差超过3度才旋转（避免抖动）
-            if (angleDiff > 3) {
-                console.log(`[地图旋转] 当前=${currentRotation.toFixed(1)}°, 目标=${targetBearing.toFixed(1)}°, 差值=${angleDiff.toFixed(1)}°`);
-                NavRenderer.setHeadingUpMode(position, targetBearing, true);
+            // 【优化1】角度平滑：使用EMA平滑，避免突然跳变
+            if (smoothedBearing === null) {
+                smoothedBearing = targetBearing;
+            } else {
+                // 计算角度差（考虑环形）
+                let angleDelta = normalize(targetBearing - smoothedBearing);
+                
+                // 平滑系数：小角度变化用较小系数（更平滑），大角度变化用较大系数（更快响应）
+                const absAngleDelta = Math.abs(angleDelta);
+                let alpha;
+                if (absAngleDelta > 45) {
+                    alpha = 0.6;  // 大角度变化，快速响应（如转弯）
+                } else if (absAngleDelta > 15) {
+                    alpha = 0.4;  // 中等角度变化
+                } else {
+                    alpha = 0.25; // 小角度变化，更平滑
+                }
+                
+                smoothedBearing = normalize(smoothedBearing + alpha * angleDelta);
             }
-
-            // 【调试】方向箭头已禁用
-            // const pointSet = window.currentSegmentPointSet;
-            // if (pointSet && currentIndex >= 0 && currentIndex < pointSet.length - 1) {
-            //     const currentPos = pointSet[currentIndex].position;
-            //     const nextPos = pointSet[currentIndex + 1].position;
-            //     if (NavRenderer.showDirectionArrow) {
-            //         NavRenderer.showDirectionArrow(currentPos, nextPos, targetBearing);
-            //     }
-            // }
+            
+            // 计算平滑后的角度与当前地图角度的差值
+            const angleDiff = Math.abs(normalize(smoothedBearing - currentRotation));
+            
+            // 【优化2】时间防抖：至少间隔200ms才执行旋转
+            const timeSinceLastRotation = now - lastRotationTime;
+            
+            // 【优化3】角度阈值：只有角度差超过5度才旋转（提高阈值）
+            // 但如果是大角度变化（>30度），立即响应
+            const shouldRotate = (angleDiff > 30) || 
+                                 (angleDiff > 5 && timeSinceLastRotation > 200);
+            
+            if (shouldRotate) {
+                // 只在角度变化较大时输出日志
+                if (angleDiff > 10) {
+                    console.log(`[地图旋转] 当前=${currentRotation.toFixed(1)}°, 目标=${smoothedBearing.toFixed(1)}°, 差值=${angleDiff.toFixed(1)}°`);
+                }
+                NavRenderer.setHeadingUpMode(position, smoothedBearing, true);
+                lastRotationTime = now;
+            }
         } catch (e) {
             console.error('[地图旋转] 执行失败:', e);
         }
@@ -2295,6 +2373,102 @@ const NavCore = (function() {
             clearInterval(deviationCheckIntervalId);
             deviationCheckIntervalId = null;
             console.log('[偏离检测] 停止GPS加速检测，恢复正常频率');
+        }
+    }
+
+    /**
+     * 比较新旧路线是否相似（用于判断是否需要重新规划）
+     * @param {Array} oldPointSet - 旧点集
+     * @param {Array} newPath - 新路径 [[lng, lat], ...]
+     * @returns {boolean} true表示路线相似，不需要重新规划
+     */
+    function compareRoutes(oldPointSet, newPath) {
+        try {
+            if (!oldPointSet || oldPointSet.length === 0 || !newPath || newPath.length < 2) {
+                return false; // 数据不完整，认为不相似
+            }
+
+            // 1. 比较终点是否相同（终点必须一致）
+            const oldEndPos = oldPointSet[oldPointSet.length - 1].position;
+            const newEndPos = newPath[newPath.length - 1];
+            const oldEndLng = Array.isArray(oldEndPos) ? oldEndPos[0] : oldEndPos.lng;
+            const oldEndLat = Array.isArray(oldEndPos) ? oldEndPos[1] : oldEndPos.lat;
+            const newEndLng = Array.isArray(newEndPos) ? newEndPos[0] : newEndPos.lng;
+            const newEndLat = Array.isArray(newEndPos) ? newEndPos[1] : newEndPos.lat;
+            
+            const endDistance = haversineDistance(oldEndLat, oldEndLng, newEndLat, newEndLng);
+            if (endDistance > 5) {
+                console.log(`[路线比较] 终点不同，距离${endDistance.toFixed(1)}米`);
+                return false;
+            }
+
+            // 2. 比较路线长度差异（如果长度差异超过20%，认为不相似）
+            let oldLength = 0;
+            for (let i = 1; i < oldPointSet.length; i++) {
+                const p1 = oldPointSet[i - 1].position;
+                const p2 = oldPointSet[i].position;
+                oldLength += haversineDistance(
+                    Array.isArray(p1) ? p1[1] : p1.lat,
+                    Array.isArray(p1) ? p1[0] : p1.lng,
+                    Array.isArray(p2) ? p2[1] : p2.lat,
+                    Array.isArray(p2) ? p2[0] : p2.lng
+                );
+            }
+
+            let newLength = 0;
+            for (let i = 1; i < newPath.length; i++) {
+                const p1 = newPath[i - 1];
+                const p2 = newPath[i];
+                newLength += haversineDistance(
+                    Array.isArray(p1) ? p1[1] : p1.lat,
+                    Array.isArray(p1) ? p1[0] : p1.lng,
+                    Array.isArray(p2) ? p2[1] : p2.lat,
+                    Array.isArray(p2) ? p2[0] : p2.lng
+                );
+            }
+
+            const lengthDiff = Math.abs(newLength - oldLength) / Math.max(oldLength, 1);
+            if (lengthDiff > 0.2) {
+                console.log(`[路线比较] 长度差异${(lengthDiff * 100).toFixed(1)}%，认为路线不同`);
+                return false;
+            }
+
+            // 3. 采样比较路线中间点（每隔一定距离取点比较）
+            // 如果大部分点都在旧路线附近（10米内），认为相似
+            const sampleInterval = Math.max(1, Math.floor(newPath.length / 5)); // 取5个采样点
+            let matchCount = 0;
+            let sampleCount = 0;
+
+            for (let i = sampleInterval; i < newPath.length - 1; i += sampleInterval) {
+                sampleCount++;
+                const newPoint = newPath[i];
+                const newLng = Array.isArray(newPoint) ? newPoint[0] : newPoint.lng;
+                const newLat = Array.isArray(newPoint) ? newPoint[1] : newPoint.lat;
+
+                // 在旧点集中找最近的点
+                let minDist = Infinity;
+                for (let j = 0; j < oldPointSet.length; j++) {
+                    const oldPoint = oldPointSet[j].position;
+                    const oldLng = Array.isArray(oldPoint) ? oldPoint[0] : oldPoint.lng;
+                    const oldLat = Array.isArray(oldPoint) ? oldPoint[1] : oldPoint.lat;
+                    const dist = haversineDistance(newLat, newLng, oldLat, oldLng);
+                    if (dist < minDist) minDist = dist;
+                }
+
+                if (minDist <= 10) {
+                    matchCount++;
+                }
+            }
+
+            // 如果80%以上的采样点都在旧路线附近，认为相似
+            const matchRatio = sampleCount > 0 ? matchCount / sampleCount : 0;
+            const isSimilar = matchRatio >= 0.8;
+            
+            console.log(`[路线比较] 采样点匹配率${(matchRatio * 100).toFixed(0)}%，${isSimilar ? '路线相似' : '路线不同'}`);
+            return isSimilar;
+        } catch (e) {
+            console.error('[路线比较] 执行失败:', e);
+            return false;
         }
     }
 
@@ -2397,6 +2571,20 @@ const NavCore = (function() {
 
             // 更新当前段的路线
             const newPath = newRoute.path;
+
+            // 【优化】比较新旧路线是否有明显差异
+            const oldPointSet = window.currentSegmentPointSet;
+            const isRouteSimilar = compareRoutes(oldPointSet, newPath);
+            
+            if (isRouteSimilar) {
+                console.log('[偏航重规划] 新路线与原路线相似，跳过重新规划');
+                return false; // 返回false表示不需要重新规划
+            }
+
+            // 【修复】在重新规划前，先固化当前已走过的灰色路线
+            // 这样重新规划后，之前走过的路线仍然显示为灰色
+            NavRenderer.lowerCompletedSegmentZIndex();
+            console.log('[偏航重规划] 已固化之前走过的灰色路线');
 
             // 重新生成点集（只更新当前段）
             const newPointSet = resamplePathWithOriginalPoints(newPath, 3);
@@ -2650,7 +2838,8 @@ const NavCore = (function() {
 
                 if (!segmentCompleted) {
                     // 更新导航提示（只在段内更新，段间切换时不更新）
-                    updateNavigationGuidance(currentSnappedIndex);
+                    // 传入当前GPS位置，用于更准确的距离计算
+                    updateNavigationGuidance(currentSnappedIndex, position);
                 }
 
                 // 更新已走路线（灰色）

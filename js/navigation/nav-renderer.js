@@ -251,6 +251,31 @@ const NavRenderer = (function() {
     }
 
     /**
+     * 清除当前段的灰色路线（重新规划时使用）
+     * 不影响已完成路段的灰色路线
+     */
+    function clearPassedRoute() {
+        try {
+            if (!map) return;
+
+            // 清除当前段的灰色路线
+            if (passedPolyline) {
+                map.remove(passedPolyline);
+                passedPolyline = null;
+                console.log('[NavRenderer] 已清除当前段灰色路线');
+            }
+
+            // 清除连接线
+            if (passedConnectLine) {
+                map.remove(passedConnectLine);
+                passedConnectLine = null;
+            }
+        } catch (e) {
+            console.error('[NavRenderer] 清除灰色路线失败:', e);
+        }
+    }
+
+    /**
      * 开启/关闭路线方向箭头
      * @param {boolean} show - 是否显示
      */
@@ -623,8 +648,11 @@ const NavRenderer = (function() {
                 map.on('rotatechange', function() {
                     if (directionIndicator) {
                         const mapRotation = map.getRotation() || 0;
-                        // 指北针需要反向旋转，以保持指向真北
-                        directionIndicator.setAngle(-mapRotation);
+                        // 高德地图：getRotation返回的是地图顺时针旋转的角度
+                        // Marker.setAngle也是顺时针旋转
+                        // 要让指北针指向真北，需要让指北针顺时针旋转mapRotation度
+                        // 这样当地图逆时针旋转时，指北针顺时针旋转，保持指向真北
+                        directionIndicator.setAngle(mapRotation);
                     }
                 });
 
@@ -634,7 +662,7 @@ const NavRenderer = (function() {
                 directionIndicator.setPosition(position);
                 // 更新旋转角度
                 const mapRotation = map.getRotation() || 0;
-                directionIndicator.setAngle(-mapRotation);
+                directionIndicator.setAngle(mapRotation);
             }
         } catch (e) {
             console.error('[NavRenderer] 更新指北针失败:', e);
@@ -767,21 +795,22 @@ const NavRenderer = (function() {
             // 即 setRotation(-bearing) 或 setRotation(360-bearing)
             const mapRotation = -bearing;
 
-            // showDebug(`旋转: bearing=${bearing.toFixed(1)}°`);
-
+            // 【优化】使用 setZoomAndCenter 同时设置中心和缩放，减少飘移
+            // 然后单独设置旋转
             if (smooth) {
-                map.setCenter(position, false, 300);
-                map.setRotation(mapRotation, false, 300);
+                // 先设置中心点（不改变缩放）
+                const currentZoom = map.getZoom();
+                map.setZoomAndCenter(currentZoom, position, false, 300);
+                // 稍微延迟设置旋转，避免同时操作导致的飘移
+                setTimeout(() => {
+                    if (map) {
+                        map.setRotation(mapRotation, false, 200);
+                    }
+                }, 50);
             } else {
                 map.setCenter(position);
                 map.setRotation(mapRotation);
             }
-
-            // 验证旋转是否生效（调试已禁用）
-            // setTimeout(() => {
-            //     const actualRotation = map.getRotation() || 0;
-            //     showDebug(`验证: 目标=${mapRotation.toFixed(1)}°, 实际=${actualRotation.toFixed(1)}°`);
-            // }, 500);
 
             if (map.getZoom() < 17) {
                 map.setZoom(17, false, 300);
@@ -1271,6 +1300,7 @@ const NavRenderer = (function() {
         drawRoute,
         updatePassedRoute,
         lowerCompletedSegmentZIndex,
+        clearPassedRoute,
         toggleRouteArrows,
         addRouteMarkers,
         addWaypointMarkers,
