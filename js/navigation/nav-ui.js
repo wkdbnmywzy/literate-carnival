@@ -324,6 +324,20 @@ const NavUI = (function() {
      * 更新导航提示卡片内容
      * @param {Object} guidance - 提示信息 { type, action, distance, message }
      */
+    // 格式化距离：当 >=1000米时按公里显示，保留1位小数并四舍五入；否则按米显示（四舍五入）
+    function formatDistanceForUI(meters) {
+        try {
+            if (typeof meters !== 'number' || !isFinite(meters)) return { text: '-', unit: '' };
+            if (Math.abs(meters) >= 1000) {
+                return { text: (meters / 1000).toFixed(1), unit: '公里' };
+            } else {
+                return { text: Math.round(meters).toString(), unit: '米' };
+            }
+        } catch (e) {
+            return { text: '-', unit: '' };
+        }
+    }
+
     function updateNavigationTip(guidance) {
         try {
             // 更新转向图标
@@ -339,10 +353,16 @@ const NavUI = (function() {
                 directionImg.alt = guidance.action;
             }
 
-            // 更新距离
+            // 更新距离（支持米/公里自动单位）
             const distanceAhead = document.getElementById('tip-distance-ahead');
+            const distanceUnitEl = document.querySelector('.tip-distance-unit');
             if (distanceAhead) {
-                distanceAhead.textContent = guidance.distance;
+                const formatted = formatDistanceForUI(typeof guidance.distance === 'number' ? guidance.distance : Number(guidance.distance));
+                distanceAhead.textContent = formatted.text;
+                if (distanceUnitEl) {
+                    // 单位位置为“米后/公里后”，保留后缀“后”以符合页面文案
+                    distanceUnitEl.textContent = `${formatted.unit}后`;
+                }
             }
 
             // 更新动作文本
@@ -444,8 +464,9 @@ const NavUI = (function() {
                 ? NavCore.getCurrentSpeed()
                 : 8.33; // 未开始导航时使用默认8.33m/s（30km/h）
 
-            // 计算预计时间（使用动态速度）
-            const remainingTime = Math.ceil(remainingDistance / currentSpeed / 60); // 分钟
+            // 计算预计时间（使用动态速度），防止速度为0导致Infinity
+            const speedForCalc = Math.max(0.2, currentSpeed);
+            const remainingTime = Math.ceil(remainingDistance / speedForCalc / 60); // 分钟
 
             // 更新目标标签
             const remainingLabelEl = document.getElementById('tip-remaining-label');
@@ -762,7 +783,10 @@ const NavUI = (function() {
             }
 
             if (distanceElem && targetInfo.distance !== undefined) {
-                distanceElem.textContent = Math.round(targetInfo.distance);
+                const formatted = formatDistanceForUI(targetInfo.distance);
+                distanceElem.textContent = formatted.text;
+                const unitElem = document.getElementById('destination-unit');
+                if (unitElem) unitElem.textContent = formatted.unit;
             }
 
             if (timeElem && targetInfo.time !== undefined) {
