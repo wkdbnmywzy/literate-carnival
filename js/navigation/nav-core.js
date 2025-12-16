@@ -1666,44 +1666,30 @@ const NavCore = (function() {
             }
 
             // 计算到下一个转向点的距离（沿路线距离）
-            // 从当前吸附点开始，沿点集累加到转向点
+            // 优化：如果提供了当前GPS位置，则用GPS位置到下一个点的首段距离，减少首段误差；否则从吸附点开始累加
             let distanceToTurn = 0;
-            
-            // 如果有当前位置，先计算当前位置到吸附点的距离（可能是负的，表示已超过吸附点）
-            if (currentPosition && currentIndex >= 0 && currentIndex < pointSet.length) {
-                const snappedPos = pointSet[currentIndex].position;
-                // 计算当前位置到吸附点的距离
-                const distToSnapped = haversineDistance(
+            if (currentPosition && currentIndex >= 0 && currentIndex < pointSet.length - 1) {
+                // 当前GPS位置到下一个点
+                const firstNext = pointSet[currentIndex + 1].position;
+                distanceToTurn += haversineDistance(
                     currentPosition[1], currentPosition[0],
-                    snappedPos[1], snappedPos[0]
+                    firstNext[1], firstNext[0]
                 );
-                
-                // 如果当前位置更接近下一个点，说明已经超过了吸附点
-                if (currentIndex < pointSet.length - 1) {
-                    const nextPos = pointSet[currentIndex + 1].position;
-                    const distToNext = haversineDistance(
-                        currentPosition[1], currentPosition[0],
-                        nextPos[1], nextPos[0]
-                    );
-                    const segmentDist = haversineDistance(
-                        snappedPos[1], snappedPos[0],
-                        nextPos[1], nextPos[0]
-                    );
-                    
-                    // 如果到下一个点的距离小于到吸附点的距离，减去已走过的部分
-                    if (distToNext < distToSnapped && distToSnapped < segmentDist) {
-                        distanceToTurn -= (segmentDist - distToNext);
-                    }
+                // 累加剩余路段
+                for (let i = currentIndex + 1; i < nextTurnPoint.pointIndex && i < pointSet.length - 1; i++) {
+                    const p1 = pointSet[i].position;
+                    const p2 = pointSet[i + 1].position;
+                    distanceToTurn += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
+                }
+            } else {
+                // 从吸附点开始累加
+                for (let i = currentIndex; i < nextTurnPoint.pointIndex && i < pointSet.length - 1; i++) {
+                    const p1 = pointSet[i].position;
+                    const p2 = pointSet[i + 1].position;
+                    distanceToTurn += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
                 }
             }
-            
-            // 累加从吸附点到转向点的路线距离
-            for (let i = currentIndex; i < nextTurnPoint.pointIndex && i < pointSet.length - 1; i++) {
-                const p1 = pointSet[i].position;
-                const p2 = pointSet[i + 1].position;
-                distanceToTurn += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
-            }
-            
+
             // 确保距离不为负
             distanceToTurn = Math.max(0, distanceToTurn);
 
@@ -1937,6 +1923,35 @@ const NavCore = (function() {
     }
 
     /**
+     * 计算自指定时间点以来的实际移动距离（基于 gpsHistory）
+     * @param {number} sinceTimeMs
+     * @returns {number} 米
+     */
+    function getMovedDistanceSince(sinceTimeMs) {
+        try {
+            if (!sinceTimeMs || gpsHistory.length < 2) return 0;
+            // 找到第一个时间 >= sinceTimeMs 的索引
+            let idx = -1;
+            for (let i = gpsHistory.length - 1; i >= 0; i--) {
+                if (gpsHistory[i].time >= sinceTimeMs) {
+                    idx = i;
+                }
+            }
+            if (idx <= 0) return 0;
+            let moved = 0;
+            for (let i = idx; i < gpsHistory.length - 1; i++) {
+                const p1 = gpsHistory[i].position;
+                const p2 = gpsHistory[i + 1].position;
+                moved += haversineDistance(p1[1], p1[0], p2[1], p2[0]);
+            }
+            return moved;
+        } catch (e) {
+            console.error('[移动距离计算] 失败:', e);
+            return 0;
+        }
+    }
+
+    /**
      * 智能直行提示（确保5-6秒稳定播报）
      * @param {number} currentIndex - 当前点索引
      * @param {number} distanceToNextTurn - 到下一个转向点的距离（如果有）
@@ -1960,19 +1975,24 @@ const NavCore = (function() {
             // 检查距离上次直行提示的时间
             const timeSinceLastPrompt = (now - lastStraightPromptTime) / 1000; // 秒
 
-            // 计算自上次提示后移动的距离
-            const movedDistance = currentSpeed * timeSinceLastPrompt;
+            // 计算自上次提示后实际移动的距离（使用gpsHistory以避免速度下限导致误判）
+            let movedDistance = 0;
+            if (lastStraightPromptTime && gpsHistory && gpsHistory.length > 1) {
+                movedDistance = getMovedDistanceSince(lastStraightPromptTime);
+            } else {
+                movedDistance = currentSpeed * timeSinceLastPrompt; // 兜底
+            }
 
-            // 5-6秒播报频率：必须 ≥5秒 且 移动 ≥7.5米（1.5m/s * 5s）
-            const minInterval = 5.0; // 最小5秒
+            // 8秒播报频率：必须 ≥8秒 且 移动 ≥（currentSpeed * 8s）
+            const minInterval = 8.0; // 最小8秒，减少频率
             const minDistance = currentSpeed * minInterval; // 动态计算最小距离
 
             if (timeSinceLastPrompt < minInterval) {
-                return; // 还不到5秒
+                return; // 还不到阈值
             }
 
             if (movedDistance < minDistance * 0.9) { // 允许10%误差
-                return; // 移动距离不够
+                return; // 实际移动距离不够
             }
 
             // 判断直线类型
@@ -2789,7 +2809,8 @@ const NavCore = (function() {
                         // 设置强制校验标志，偏离回归后立即执行实时对齐
                         forceSecondaryCheck = true;
 
-                        // 播报"已回到规划路线"
+                        // 播报"已回到规划路线"，并重置TTS抑制以确保后续播报
+                        if (typeof NavTTS !== 'undefined' && NavTTS.resetSuppression) NavTTS.resetSuppression();
                         NavTTS.speak('已回到规划路线', { force: false });
                     }
                 }
@@ -2939,6 +2960,11 @@ const NavCore = (function() {
                             hasAnnouncedDeviation = false;
                             NavRenderer.endDeviation(kmlSnapped, true);
 
+                            // 重置TTS抑制状态，确保后续播报不被误抑制
+                            if (typeof NavTTS !== 'undefined' && NavTTS.resetSuppression) {
+                                NavTTS.resetSuppression();
+                            }
+
                             // 播报重新规划
                             NavTTS.speak('已重新规划路线', { force: true });
 
@@ -2948,8 +2974,8 @@ const NavCore = (function() {
 
                             // 【关键】重新规划后更新导航提示
                             // 由于 checkAndReplanFromKML 已重置 currentSnappedIndex = 0
-                            // 这里需要更新导航提示到新路线的起点
-                            updateNavigationGuidance(0);
+                            // 这里需要更新导航提示到新路线的起点（使用吸附后的位置作为当前位置）
+                            updateNavigationGuidance(0, kmlSnapped);
 
                             console.log('[KML吸附] 导航提示已更新到新路线');
                             // 注意：底部目的地信息栏始终显示最终终点，无需更新
