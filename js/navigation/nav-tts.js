@@ -13,6 +13,7 @@ const NavTTS = (function() {
     // 播报队列
     let speechQueue = [];
     let isSpeaking = false;
+    let speakStartTime = 0; // 监控播报是否卡住
 
     // 播报抑制（避免短时间内重复）
     let suppressionUntil = 0;
@@ -124,6 +125,13 @@ const NavTTS = (function() {
      * 处理播报队列
      */
     function processQueue() {
+        // Watchdog: 如果播放状态卡住超过30秒，重置状态以继续处理队列
+        if (isSpeaking && speakStartTime && (Date.now() - speakStartTime) > 30000) {
+            console.warn('[NavTTS] 播报疑似卡住，强制重置播放状态');
+            isSpeaking = false;
+            speakStartTime = 0;
+        }
+
         if (isSpeaking) {
             console.log('[NavTTS] 正在播报中，等待队列处理');
             return;
@@ -140,6 +148,7 @@ const NavTTS = (function() {
         }
 
         isSpeaking = true;
+        speakStartTime = Date.now();
         const { text, options } = item;
 
         console.log('[NavTTS] 开始播报:', text);
@@ -156,6 +165,7 @@ const NavTTS = (function() {
                 })
                 .finally(() => {
                     isSpeaking = false;
+                    speakStartTime = 0;
                     // 延迟处理下一条，避免冲突
                     setTimeout(processQueue, 120);
                 });
@@ -171,6 +181,7 @@ const NavTTS = (function() {
                 })
                 .finally(() => {
                     isSpeaking = false;
+                    speakStartTime = 0;
                     setTimeout(processQueue, 120);
                 });
         } else {
@@ -178,6 +189,7 @@ const NavTTS = (function() {
             fallbackSpeak(text)
                 .finally(() => {
                     isSpeaking = false;
+                    speakStartTime = 0;
                     setTimeout(processQueue, 120);
                 });
         }
