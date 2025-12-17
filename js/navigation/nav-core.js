@@ -62,6 +62,14 @@ const NavCore = (function() {
     let hasAnnouncedDeviation = false; // 是否已播报偏离
     let lastReplanTime = 0;          // 上次重新规划的时间戳（用于防抖）
 
+    // GPS处理节流与心跳检测
+    let lastGPSProcessTime = 0;      // 上次GPS处理完成时间
+    let isProcessingGPS = false;     // 是否正在处理GPS更新
+    let gpsProcessStartTime = 0;     // GPS处理开始时间
+    let heartbeatCheckerId = null;   // 心跳检测定时器
+    const GPS_MIN_INTERVAL = 300;    // GPS处理最小间隔（毫秒）
+    const GPS_TIMEOUT = 3000;        // GPS处理超时时间（毫秒）
+
     // 转弯期间校验控制
     let isTurningPhase = false;      // 是否处于转弯阶段
     let turningPhaseEndTime = 0;     // 转弯阶段结束时间（播报"转弯"后3秒）
@@ -1225,6 +1233,9 @@ const NavCore = (function() {
             // 启动定时更新
             startUpdateTimer();
 
+            // 启动心跳检测（每2秒检查一次GPS处理是否卡死）
+            startHeartbeatChecker();
+
             // 注意：语音提示已在 drawGuidanceToStart() 中根据距离判断播报
             // 不在这里重复播报
 
@@ -1437,9 +1448,16 @@ const NavCore = (function() {
             // 停止定时器
             stopUpdateTimer();
 
+            // 停止心跳检测
+            stopHeartbeatChecker();
+
             // 重置偏离检测状态
             deviationStartTime = 0;
             hasAnnouncedDeviation = false;
+
+            // 重置GPS处理状态
+            isProcessingGPS = false;
+            lastGPSProcessTime = 0;
 
             // 停止语音
             NavTTS.stop();
@@ -2669,6 +2687,29 @@ const NavCore = (function() {
         try {
             if (!isNavigating) return;
 
+            const now = Date.now();
+
+            // 【节流保护】如果距离上次处理时间太短，跳过本次
+            if (now - lastGPSProcessTime < GPS_MIN_INTERVAL) {
+                return;
+            }
+
+            // 【防卡死】如果上次处理还没完成且超时，强制重置
+            if (isProcessingGPS && (now - gpsProcessStartTime > GPS_TIMEOUT)) {
+                console.warn('[NavCore] GPS处理超时，强制重置');
+                isProcessingGPS = false;
+            }
+
+            // 【防重入】如果正在处理中，跳过本次
+            if (isProcessingGPS) {
+                console.log('[NavCore] GPS处理中，跳过本次更新');
+                return;
+            }
+
+            // 标记开始处理
+            isProcessingGPS = true;
+            gpsProcessStartTime = now;
+
             // 0. 更新速度计算
             updateSpeed(position);
 
@@ -3069,8 +3110,15 @@ const NavCore = (function() {
             // 6. 更新精度圈（始终使用GPS原始位置）
             NavRenderer.updateAccuracyCircle(position, accuracy);
 
+            // 标记处理完成
+            isProcessingGPS = false;
+            lastGPSProcessTime = Date.now();
+
         } catch (e) {
             console.error('[NavCore] GPS更新处理失败:', e);
+            // 异常时也要重置处理标志，避免卡死
+            isProcessingGPS = false;
+            lastGPSProcessTime = Date.now();
         }
     }
 
@@ -3139,6 +3187,71 @@ const NavCore = (function() {
         if (updateTimer) {
             clearInterval(updateTimer);
             updateTimer = null;
+        }
+    }
+
+    /**
+     * 启动心跳检测（检测GPS处理是否卡死）
+     */
+    function startHeartbeatChecker() {
+        if (heartbeatCheckerId !== null) {
+            clearInterval(heartbeatCheckerId);
+        }
+
+        heartbeatCheckerId = setInterval(() => {
+            if (!isNavigating) return;
+
+            const now = Date.now();
+
+            // 检查GPS处理是否超时
+            if (isProcessingGPS && (now - gpsProcessStartTime > GPS_TIMEOUT)) {
+                console.warn('[心跳检测] GPS处理超时，强制重置状态');
+                isProcessingGPS = false;
+                lastGPSProcessTime = now;
+
+                // 尝试重新获取GPS位置
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            const converted = NavGPS.convertCoordinates(
+                                pos.coords.longitude,
+                                pos.coords.latitude
+                            );
+                            console.log('[心跳检测] GPS位置恢复:', converted);
+                            // 触发一次GPS更新
+                            onGPSUpdate(converted, pos.coords.accuracy || 10, pos.coords.heading || 0);
+                        },
+                        (err) => {
+                            console.warn('[心跳检测] GPS恢复失败:', err.message);
+                        },
+                        { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 }
+                    );
+                } catch (e) {
+                    console.error('[心跳检测] 恢复GPS失败:', e);
+                }
+            }
+
+            // 检查GPS是否长时间没有更新（超过10秒）
+            if (lastGPSProcessTime > 0 && (now - lastGPSProcessTime > 10000)) {
+                console.warn('[心跳检测] GPS长时间未更新，尝试重新获取');
+                // 确保GPS监听正常
+                if (NavGPS && typeof NavGPS.ensureWatching === 'function') {
+                    NavGPS.ensureWatching();
+                }
+            }
+        }, 2000); // 每2秒检查一次
+
+        console.log('[NavCore] 心跳检测已启动');
+    }
+
+    /**
+     * 停止心跳检测
+     */
+    function stopHeartbeatChecker() {
+        if (heartbeatCheckerId !== null) {
+            clearInterval(heartbeatCheckerId);
+            heartbeatCheckerId = null;
+            console.log('[NavCore] 心跳检测已停止');
         }
     }
 
