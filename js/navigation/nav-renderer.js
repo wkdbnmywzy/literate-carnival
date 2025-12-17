@@ -179,42 +179,43 @@ const NavRenderer = (function() {
                     passedPath.push(pos);
                 }
 
+                // 使用 setPath 更新路径，避免删除重建导致的闪烁
                 if (passedPolyline) {
-                    map.remove(passedPolyline);
-                    passedPolyline = null;
+                    passedPolyline.setPath(passedPath);
+                } else {
+                    passedPolyline = new AMap.Polyline({
+                        path: passedPath,
+                        strokeColor: ROUTE_STYLES.passed.strokeColor,
+                        strokeWeight: ROUTE_STYLES.passed.strokeWeight,
+                        strokeOpacity: ROUTE_STYLES.passed.strokeOpacity,
+                        lineJoin: 'round',
+                        lineCap: 'round',
+                        zIndex: ROUTE_STYLES.passed.zIndex,
+                        map: map
+                    });
                 }
-
-                passedPolyline = new AMap.Polyline({
-                    path: passedPath,
-                    strokeColor: ROUTE_STYLES.passed.strokeColor,
-                    strokeWeight: ROUTE_STYLES.passed.strokeWeight,
-                    strokeOpacity: ROUTE_STYLES.passed.strokeOpacity,
-                    lineJoin: 'round',
-                    lineCap: 'round',
-                    zIndex: ROUTE_STYLES.passed.zIndex,
-                    map: map
-                });
             }
 
             // 绘制从最后点集点到当前GPS位置的连接线
             if (currentIndex >= 0 && currentPosition) {
                 const lastPoint = pointSet[currentIndex].position;
+                const connectPath = [lastPoint, currentPosition];
 
+                // 使用 setPath 更新连接线，避免删除重建导致的闪烁
                 if (passedConnectLine) {
-                    map.remove(passedConnectLine);
-                    passedConnectLine = null;
+                    passedConnectLine.setPath(connectPath);
+                } else {
+                    passedConnectLine = new AMap.Polyline({
+                        path: connectPath,
+                        strokeColor: ROUTE_STYLES.passed.strokeColor,
+                        strokeWeight: ROUTE_STYLES.passed.strokeWeight,
+                        strokeOpacity: ROUTE_STYLES.passed.strokeOpacity,
+                        lineJoin: 'round',
+                        lineCap: 'round',
+                        zIndex: ROUTE_STYLES.passed.zIndex,
+                        map: map
+                    });
                 }
-
-                passedConnectLine = new AMap.Polyline({
-                    path: [lastPoint, currentPosition],
-                    strokeColor: ROUTE_STYLES.passed.strokeColor,
-                    strokeWeight: ROUTE_STYLES.passed.strokeWeight,
-                    strokeOpacity: ROUTE_STYLES.passed.strokeOpacity,
-                    lineJoin: 'round',
-                    lineCap: 'round',
-                    zIndex: ROUTE_STYLES.passed.zIndex,
-                    map: map
-                });
             }
         } catch (e) {
             console.error('[NavRenderer] 更新已走路线失败:', e);
@@ -792,8 +793,23 @@ const NavRenderer = (function() {
             // bearing 是道路方向（0=北，90=东，180=南，270=西）
             // 高德地图 setRotation(X) 是让地图顺时针旋转X度
             // 要让道路方向朝上，需要逆时针旋转bearing度
-            // 即 setRotation(-bearing) 或 setRotation(360-bearing)
-            const mapRotation = -bearing;
+            let targetRotation = -bearing;
+            
+            // 归一化目标角度到 -180 ~ 180 范围
+            while (targetRotation > 180) targetRotation -= 360;
+            while (targetRotation < -180) targetRotation += 360;
+            
+            // 获取当前地图旋转角度
+            const currentRotation = map.getRotation() || 0;
+            
+            // 计算最短旋转路径
+            let angleDiff = targetRotation - currentRotation;
+            // 确保走最短路径（不超过180度）
+            while (angleDiff > 180) angleDiff -= 360;
+            while (angleDiff < -180) angleDiff += 360;
+            
+            // 最终旋转角度 = 当前角度 + 最短差值
+            const mapRotation = currentRotation + angleDiff;
 
             // 【优化】使用 setZoomAndCenter 同时设置中心和缩放，减少飘移
             // 然后单独设置旋转

@@ -60,7 +60,6 @@ const NavCore = (function() {
     // 偏离检测防抖
     let deviationStartTime = 0;      // 开始偏离的时间戳
     let hasAnnouncedDeviation = false; // 是否已播报偏离
-    let deviationCheckIntervalId = null; // 偏离检测期间的加速定时器
     let lastReplanTime = 0;          // 上次重新规划的时间戳（用于防抖）
 
     // 转弯期间校验控制
@@ -1438,6 +1437,10 @@ const NavCore = (function() {
             // 停止定时器
             stopUpdateTimer();
 
+            // 重置偏离检测状态
+            deviationStartTime = 0;
+            hasAnnouncedDeviation = false;
+
             // 停止语音
             NavTTS.stop();
 
@@ -2331,71 +2334,6 @@ const NavCore = (function() {
             console.error('[地图旋转] 执行失败:', e);
         }
     }
-
-    /**
-     * 启动偏离快速检测（1.5秒一次）
-     * 在可能偏离的3秒防抖期间，加快GPS检测频率
-     */
-    function startDeviationFastCheck() {
-        // 如果已经有定时器在运行，先清除
-        if (deviationCheckIntervalId !== null) {
-            clearInterval(deviationCheckIntervalId);
-        }
-
-        console.log('[偏离检测] 启动GPS加速检测（1.5秒/次）');
-
-        deviationCheckIntervalId = setInterval(() => {
-            // 主动触发一次GPS位置获取
-            navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    const lng = pos.coords.longitude;
-                    const lat = pos.coords.latitude;
-                    const accuracy = pos.coords.accuracy || 10;
-                    const heading = pos.coords.heading || 0;
-
-                    // 坐标转换
-                    const converted = NavGPS.convertCoordinates(lng, lat);
-
-                    console.log('[偏离检测] 快速检测GPS更新:', converted, `精度:${accuracy}米`);
-
-                    // 手动触发吸附检测（复用主逻辑）
-                    const snapped = findNearestPointInSet(converted);
-
-                    if (snapped) {
-                        // 吸附成功，说明是GPS漂移！
-                        console.log('[偏离检测] ✓ GPS已回归，判定为漂移，停止加速检测');
-                        stopDeviationFastCheck();
-
-                        // 重置偏离计时器
-                        deviationStartTime = 0;
-
-                        // 触发正常的GPS更新流程
-                        onGPSUpdate(converted, accuracy, heading);
-                    }
-                },
-                (error) => {
-                    console.warn('[偏离检测] GPS快速检测失败:', error.message);
-                },
-                {
-                    enableHighAccuracy: true,
-                    timeout: 5000,
-                    maximumAge: 0
-                }
-            );
-        }, 1500); // 1.5秒一次
-    }
-
-    /**
-     * 停止偏离快速检测，恢复正常频率
-     */
-    function stopDeviationFastCheck() {
-        if (deviationCheckIntervalId !== null) {
-            clearInterval(deviationCheckIntervalId);
-            deviationCheckIntervalId = null;
-            console.log('[偏离检测] 停止GPS加速检测，恢复正常频率');
-        }
-    }
-
     /**
      * 比较新旧路线是否相似（用于判断是否需要重新规划）
      * @param {Array} oldPointSet - 旧点集
@@ -2530,9 +2468,59 @@ const NavCore = (function() {
     }
 
     /**
+     * 检查用户是否回归到原路线（跳过一段后回到原路线的后半部分）
+     * @param {Array} position - 当前GPS位置 [lng, lat]
+     * @param {Array} pointSet - 原路线点集
+     * @returns {Object} { rejoined: boolean, index: number, distance: number }
+     */
+    function checkRejoinOriginalRoute(position, pointSet) {
+        try {
+            if (!pointSet || pointSet.length === 0) {
+                return { rejoined: false };
+            }
+
+            const posLng = position[0];
+            const posLat = position[1];
+
+            // 从当前吸附点之后开始搜索（用户不可能回到已走过的点）
+            const searchStart = Math.max(0, currentSnappedIndex + 1);
+            
+            let nearestIndex = -1;
+            let nearestDistance = Infinity;
+
+            for (let i = searchStart; i < pointSet.length; i++) {
+                const point = pointSet[i].position;
+                const lng = Array.isArray(point) ? point[0] : point.lng;
+                const lat = Array.isArray(point) ? point[1] : point.lat;
+
+                const distance = haversineDistance(posLat, posLng, lat, lng);
+
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearestIndex = i;
+                }
+            }
+
+            // 如果距离原路线点集在10米内，认为回归到原路线
+            if (nearestDistance <= 10 && nearestIndex > currentSnappedIndex) {
+                return {
+                    rejoined: true,
+                    index: nearestIndex,
+                    distance: nearestDistance
+                };
+            }
+
+            return { rejoined: false };
+        } catch (e) {
+            console.error('[回归检测] 执行失败:', e);
+            return { rejoined: false };
+        }
+    }
+
+    /**
      * 检测当前位置是否在KML其他路线上，如果是则重新规划到当前段终点
      * @param {Array} position - 当前GPS位置 [lng, lat]
-     * @returns {boolean} 是否成功重新规划
+     * @returns {string|boolean} 'rejoined'表示回归原路线, true表示重新规划成功, false表示失败
      */
     function checkAndReplanFromKML(position) {
         try {
@@ -2553,6 +2541,27 @@ const NavCore = (function() {
             if (!fullPointSet || fullPointSet.length === 0) {
                 console.log('[偏航重规划] 点集不存在');
                 return false;
+            }
+
+            // 【新增】先检查当前位置是否在原路线的点集上（用户可能跳过一段后回归）
+            const oldPointSet = window.currentSegmentPointSet;
+            if (oldPointSet && oldPointSet.length > 0) {
+                const rejoinResult = checkRejoinOriginalRoute(position, oldPointSet);
+                if (rejoinResult.rejoined) {
+                    console.log(`[偏航重规划] 用户回归到原路线，索引=${rejoinResult.index}，距离=${rejoinResult.distance.toFixed(1)}米`);
+                    
+                    // 更新吸附索引到回归点
+                    currentSnappedIndex = rejoinResult.index;
+                    lastSnappedIndex = rejoinResult.index - 1;
+                    
+                    // 重置转向点提示状态
+                    lastTurningPointIndex = -1;
+                    nextTurningPointIndex = -1;
+                    hasPrompted1_4 = false;
+                    hasPromptedBefore = false;
+                    
+                    return 'rejoined'; // 返回特殊标志表示回归原路线
+                }
             }
 
             // 获取当前段终点位置
@@ -2593,7 +2602,6 @@ const NavCore = (function() {
             const newPath = newRoute.path;
 
             // 【优化】比较新旧路线是否有明显差异
-            const oldPointSet = window.currentSegmentPointSet;
             const isRouteSimilar = compareRoutes(oldPointSet, newPath);
             
             if (isRouteSimilar) {
@@ -2776,8 +2784,6 @@ const NavCore = (function() {
                     console.log('[点集吸附] 重新吸附成功，重置偏离计时器');
                     deviationStartTime = 0;
                     hasAnnouncedDeviation = false; // 重置偏离播报标志
-                    // 停止GPS加速检测
-                    stopDeviationFastCheck();
                 }
 
                 // 检查是否从偏离状态恢复
@@ -2904,45 +2910,35 @@ const NavCore = (function() {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
                 const now = Date.now();
 
+                // 【统一吸附】先尝试吸附KML全路网（可能用户走了其他道路）
+                const kmlSnapped = snapToKMLNetwork(position);
+                
                 // 【防抖机制】首次检测到偏离时记录时间，持续3秒才真正进入偏离状态
                 if (deviationStartTime === 0) {
                     deviationStartTime = now;
                     console.log('[点集吸附] 检测到可能偏离（超出阈值），开始3秒防抖检测...');
-
-                    // 【GPS加速】启动1.5秒一次的快速检测，判断是漂移还是真偏离
-                    startDeviationFastCheck();
-
-                    // 即使可能偏离，也继续显示在最后吸附位置，不要立即跳到GPS位置
-                    displayPosition = NavRenderer.getLastSnappedPosition() || position;
-                    displayHeading = calculateCurrentBearing(currentSnappedIndex);
-
-                    // 地图跟随最后吸附位置
-                    NavRenderer.setCenterOnly(displayPosition, true);
-                    return; // 直接返回，不进入偏离状态
                 }
 
                 const deviationDuration = (now - deviationStartTime) / 1000; // 秒
 
-                // 持续3秒仍未吸附，确认为真正偏离
+                // 防抖期间：继续显示在最后吸附位置，等待确认是否真正偏离
                 if (deviationDuration < 3.0) {
                     console.log(`[点集吸附] 偏离持续 ${deviationDuration.toFixed(1)}秒，继续等待...`);
                     // 继续显示在最后吸附位置
                     displayPosition = NavRenderer.getLastSnappedPosition() || position;
                     displayHeading = calculateCurrentBearing(currentSnappedIndex);
                     NavRenderer.setCenterOnly(displayPosition, true);
+                    
+                    // 即使在防抖期间也要更新用户标记和精度圈，避免界面卡住
+                    NavRenderer.updateUserMarker(displayPosition, displayHeading, true, true);
+                    NavRenderer.updateAccuracyCircle(position, accuracy);
                     return;
                 }
 
                 console.log('[点集吸附] 确认偏离（持续3秒未回归）');
 
-                // 停止GPS加速检测（已确认为真偏离，不需要继续加速检测）
-                stopDeviationFastCheck();
-
                 // 【优化方案】偏离后持续尝试吸附KML全路网并重新规划
                 let replanResult = false;
-
-                // 1. 先尝试吸附KML全路网（包括规划路线和规划外的路线）
-                const kmlSnapped = snapToKMLNetwork(position);
 
                 if (kmlSnapped) {
                     console.log('[KML吸附] 成功吸附到KML路网:', kmlSnapped);
@@ -2953,7 +2949,31 @@ const NavCore = (function() {
                         replanResult = checkAndReplanFromKML(kmlSnapped);
                         lastReplanTime = now;
 
-                        if (replanResult) {
+                        if (replanResult === 'rejoined') {
+                            // 用户回归到原路线（跳过一段后回到原路线的后半部分）
+                            console.log('[KML吸附] ✓ 用户回归到原路线');
+                            deviationStartTime = 0;
+                            hasAnnouncedDeviation = false;
+                            NavRenderer.endDeviation(kmlSnapped, true);
+
+                            // 重置TTS抑制状态
+                            if (typeof NavTTS !== 'undefined' && NavTTS.resetSuppression) {
+                                NavTTS.resetSuppression();
+                            }
+
+                            // 播报"已回到规划路线"而不是"已重新规划路线"
+                            NavTTS.speak('已回到规划路线', { force: true });
+
+                            // 更新显示位置
+                            displayPosition = kmlSnapped;
+                            displayHeading = 0;
+
+                            // 更新导航提示
+                            updateNavigationGuidance(currentSnappedIndex, kmlSnapped);
+
+                            // 标记为成功处理
+                            replanResult = true;
+                        } else if (replanResult === true) {
                             console.log('[KML吸附] ✓ 重新规划成功');
                             // 重新规划成功，重置偏离状态
                             deviationStartTime = 0;

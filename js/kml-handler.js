@@ -803,7 +803,7 @@ function displayKMLFeatures(features, fileName) {
     });
 
     // 2. 再显示线（zIndex: 50）
-    // 首页不显示路网线要素（仅在导航页显示）
+    // 首页显示KML路网线要素（绿色细线）
     lines.forEach(feature => {
         const featureCoordinates = feature.geometry.coordinates;
 
@@ -821,18 +821,17 @@ function displayKMLFeatures(features, fileName) {
 
         allCoordinates.push(...featureCoordinates);
 
-        // 使用API返回的线样式
-        const lineStyle = feature.geometry.style || {};
+        // 使用与导航界面一致的线样式（浅绿色细线）
         const lineZIndex = (feature.properties && feature.properties.zIndex) || 50;
 
-        // 创建线要素但不添加到地图上（首页隐藏路网）
+        // 创建线要素并添加到地图上（首页显示路网，样式与导航界面一致）
         const marker = new AMap.Polyline({
             path: validCoords,
-            strokeColor: lineStyle.strokeColor || MapConfig.routeStyles.polyline.strokeColor,
-            strokeWeight: lineStyle.strokeWeight || MapConfig.routeStyles.polyline.strokeWeight,
-            strokeOpacity: lineStyle.strokeOpacity || 1,
-            zIndex: lineZIndex
-            // 不添加 map: map，这样线要素不会显示在首页地图上
+            strokeColor: '#9AE59D',  // 浅绿色，与导航界面一致
+            strokeWeight: 1,          // 1px细线
+            strokeOpacity: 1,
+            zIndex: lineZIndex,
+            map: map  // 添加到地图上显示
         });
 
         marker.setExtData({

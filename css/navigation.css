@@ -20,7 +20,8 @@
     box-shadow: none;
     z-index: 90;
     max-height: 90vh; /* 恢复到90% */
-    overflow: visible; /* 卡片本身不滚动 */
+    overflow-x: hidden; /* 隐藏横向滚动条 */
+    overflow-y: visible; /* 纵向不滚动 */
 }
 
 /* 路线选择器 */
@@ -39,11 +40,13 @@
     background: #fff;
     position: relative; /* 作为绝对定位参照 */
     padding-right: 56px; /* 预留按钮空间 */
+    overflow: hidden; /* 隐藏溢出内容 */
 }
 
 .location-inputs {
     display: flex;
     flex-direction: column;
+    overflow: hidden; /* 隐藏溢出内容 */
 }
 
 .location-inputs .location-item {
@@ -201,6 +204,7 @@
     /* 超过3个途径点时显示滚动条 */
     /* 每个途径点约64px高度，3个=192px */
     max-height: 192px;
+    overflow-x: hidden; /* 隐藏横向滚动条 */
     overflow-y: auto;
     /* 美化滚动条：细滚动条，不突兀 */
     scrollbar-width: thin;

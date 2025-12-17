@@ -255,15 +255,26 @@
         const startInput = document.getElementById('picker-start-location');
         const endInput = document.getElementById('picker-end-location');
 
-        // 检查哪个输入框最近被聚焦
+        // 优先使用 currentInputType 变量判断（来自 point-selection.js）
+        if (typeof currentInputType !== 'undefined') {
+            if (currentInputType === 'start') {
+                return startInput;
+            } else if (currentInputType === 'end') {
+                return endInput;
+            } else if (currentInputType === 'waypoint' && typeof currentActiveInput !== 'undefined') {
+                return document.getElementById(currentActiveInput);
+            }
+        }
+
+        // 回退：检查哪个输入框最近被聚焦
         if (document.activeElement === startInput) {
             return startInput;
         } else if (document.activeElement === endInput) {
             return endInput;
         }
 
-        // 默认返回终点输入框
-        return endInput;
+        // 默认返回起点输入框（而不是终点）
+        return startInput;
     }
 
     document.addEventListener('DOMContentLoaded', function() {
