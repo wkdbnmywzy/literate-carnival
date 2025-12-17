@@ -10,10 +10,14 @@ const NavCore = (function() {
     // ==================== 吸附阈值配置（全局变量，便于调整）====================
     const SNAP_THRESHOLD_NORMAL = 8;      // 常规吸附阈值（直线路段、偏离轨迹吸附KML）
     const SNAP_THRESHOLD_TURNING = 10;    // 转弯处吸附阈值（转弯时GPS误差大，放宽阈值）
+    const SNAP_THRESHOLD_BUFFER = 12;     // 偏离缓冲阈值（8-12米需要连续确认）
+    const DEVIATION_CONFIRM_COUNT = 5;    // 偏离确认次数（连续5次8-12米才确认偏离）
     // ========================================================================
 
     // 导航状态
     let isNavigating = false;
+    let isStartingNavigation = false;  // 是否正在启动导航（用于心跳检测启动过程中的卡死）
+    let navigationStartingTime = 0;    // 导航启动开始时间
     let navigationPath = [];
     let routeData = null;
 
@@ -57,16 +61,19 @@ const NavCore = (function() {
     let navigationStartTime = null;  // 导航开始时间
     let totalTravelDistance = 0;     // 总行程距离（米）
 
-    // 偏离检测防抖
-    let deviationStartTime = 0;      // 开始偏离的时间戳
+    // 偏离检测（次数确认机制）
+    let deviationConfirmCount = 0;   // 连续偏离确认计数（8-12米范围内）
     let hasAnnouncedDeviation = false; // 是否已播报偏离
     let lastReplanTime = 0;          // 上次重新规划的时间戳（用于防抖）
+    let isDeviationConfirmed = false; // 是否已确认偏离
 
     // GPS处理节流与心跳检测
     let lastGPSProcessTime = 0;      // 上次GPS处理完成时间
     let isProcessingGPS = false;     // 是否正在处理GPS更新
     let gpsProcessStartTime = 0;     // GPS处理开始时间
     let heartbeatCheckerId = null;   // 心跳检测定时器
+    let lastDisplayPosition = null;  // 上次显示的位置（用于检测位置卡死）
+    let lastPositionChangeTime = 0;  // 上次位置变化时间
     const GPS_MIN_INTERVAL = 300;    // GPS处理最小间隔（毫秒）
     const GPS_TIMEOUT = 3000;        // GPS处理超时时间（毫秒）
 
@@ -1187,6 +1194,12 @@ const NavCore = (function() {
                 return false;
             }
 
+            // 【提前启动心跳检测】在任何可能卡死的操作之前启动，确保能检测到启动过程中的卡死
+            isStartingNavigation = true;
+            navigationStartingTime = Date.now();
+            startHeartbeatChecker();
+            console.log('[NavCore] 心跳检测已提前启动（启动保护模式）');
+
             console.log('[NavCore] 正在获取当前位置...');
 
             // 直接获取当前GPS位置（会自动触发权限请求）
@@ -1211,6 +1224,7 @@ const NavCore = (function() {
             console.log('[NavCore] 开始导航...');
 
             isNavigating = true;
+            isStartingNavigation = false;  // 启动完成，退出启动保护模式
             hasReachedStart = false;  // 重置到达起点状态
             window.hasReachedStart = false;  // 同步到全局
             window.hasAnnouncedNavigationStart = false;  // 重置播报标志
@@ -1233,8 +1247,7 @@ const NavCore = (function() {
             // 启动定时更新
             startUpdateTimer();
 
-            // 启动心跳检测（每2秒检查一次GPS处理是否卡死）
-            startHeartbeatChecker();
+            // 心跳检测已在函数开头提前启动，这里不再重复启动
 
             // 注意：语音提示已在 drawGuidanceToStart() 中根据距离判断播报
             // 不在这里重复播报
@@ -1244,6 +1257,8 @@ const NavCore = (function() {
         } catch (e) {
             console.error('[NavCore] 启动导航失败:', e);
             isNavigating = false;
+            isStartingNavigation = false;
+            stopHeartbeatChecker();
             return false;
         }
     }
@@ -1452,12 +1467,15 @@ const NavCore = (function() {
             stopHeartbeatChecker();
 
             // 重置偏离检测状态
-            deviationStartTime = 0;
+            deviationConfirmCount = 0;
+            isDeviationConfirmed = false;
             hasAnnouncedDeviation = false;
 
             // 重置GPS处理状态
             isProcessingGPS = false;
             lastGPSProcessTime = 0;
+            lastDisplayPosition = null;
+            lastPositionChangeTime = 0;
 
             // 停止语音
             NavTTS.stop();
@@ -1612,6 +1630,41 @@ const NavCore = (function() {
         }
 
         return null;
+    }
+
+    /**
+     * 查找GPS位置到当前段点集的最近距离（不判断阈值，仅返回距离）
+     * 用于偏离确认时判断是否在缓冲区内
+     * @param {Array} gpsPosition - GPS位置 [lng, lat]
+     * @returns {number} 最近距离（米），如果无法计算返回Infinity
+     */
+    function findNearestDistanceInSet(gpsPosition) {
+        const pointSet = window.currentSegmentPointSet;
+
+        if (!pointSet || pointSet.length === 0) {
+            return Infinity;
+        }
+
+        let nearestDistance = Infinity;
+
+        // 搜索整个当前段
+        for (let i = 0; i < pointSet.length; i++) {
+            const point = pointSet[i];
+            const pos = point.position;
+            const lng = Array.isArray(pos) ? pos[0] : pos.lng;
+            const lat = Array.isArray(pos) ? pos[1] : pos.lat;
+
+            const distance = haversineDistance(
+                gpsPosition[1], gpsPosition[0],
+                lat, lng
+            );
+
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+            }
+        }
+
+        return nearestDistance;
     }
 
     /**
@@ -2691,6 +2744,7 @@ const NavCore = (function() {
 
             // 【节流保护】如果距离上次处理时间太短，跳过本次
             if (now - lastGPSProcessTime < GPS_MIN_INTERVAL) {
+                // 节流跳过不输出日志，避免刷屏
                 return;
             }
 
@@ -2809,6 +2863,10 @@ const NavCore = (function() {
                 // 更新精度圈
                 NavRenderer.updateAccuracyCircle(position, accuracy);
 
+                // 【关键】提前return前必须重置处理标志
+                isProcessingGPS = false;
+                lastGPSProcessTime = Date.now();
+
                 // 未到达起点，后续逻辑不执行
                 return;
             }
@@ -2818,13 +2876,14 @@ const NavCore = (function() {
             let displayHeading = gpsHeading; // 默认显示GPS方向
 
             if (snapped) {
-                // ========== 吸附成功 ==========
+                // ========== 吸附成功（≤8米）==========
 
-                // 【重置偏离防抖计时器】
-                if (deviationStartTime !== 0) {
-                    console.log('[点集吸附] 重新吸附成功，重置偏离计时器');
-                    deviationStartTime = 0;
-                    hasAnnouncedDeviation = false; // 重置偏离播报标志
+                // 【重置偏离确认计数】
+                if (deviationConfirmCount > 0 || isDeviationConfirmed) {
+                    console.log('[点集吸附] 重新吸附成功，重置偏离状态');
+                    deviationConfirmCount = 0;
+                    isDeviationConfirmed = false;
+                    hasAnnouncedDeviation = false;
                 }
 
                 // 检查是否从偏离状态恢复
@@ -2954,29 +3013,41 @@ const NavCore = (function() {
                 // 【统一吸附】先尝试吸附KML全路网（可能用户走了其他道路）
                 const kmlSnapped = snapToKMLNetwork(position);
                 
-                // 【防抖机制】首次检测到偏离时记录时间，持续3秒才真正进入偏离状态
-                if (deviationStartTime === 0) {
-                    deviationStartTime = now;
-                    console.log('[点集吸附] 检测到可能偏离（超出阈值），开始3秒防抖检测...');
-                }
-
-                const deviationDuration = (now - deviationStartTime) / 1000; // 秒
-
-                // 防抖期间：继续显示在最后吸附位置，等待确认是否真正偏离
-                if (deviationDuration < 3.0) {
-                    console.log(`[点集吸附] 偏离持续 ${deviationDuration.toFixed(1)}秒，继续等待...`);
-                    // 继续显示在最后吸附位置
-                    displayPosition = NavRenderer.getLastSnappedPosition() || position;
-                    displayHeading = calculateCurrentBearing(currentSnappedIndex);
-                    NavRenderer.setCenterOnly(displayPosition, true);
+                // 【次数确认机制】检查是否在12米缓冲区内
+                const nearestDistance = findNearestDistanceInSet(position);
+                
+                if (nearestDistance <= SNAP_THRESHOLD_BUFFER && !isDeviationConfirmed) {
+                    // 在8-12米缓冲区内，需要连续确认
+                    deviationConfirmCount++;
+                    console.log(`[偏离确认] 距离${nearestDistance.toFixed(1)}米（8-12米缓冲区），计数 ${deviationConfirmCount}/${DEVIATION_CONFIRM_COUNT}`);
                     
-                    // 即使在防抖期间也要更新用户标记和精度圈，避免界面卡住
-                    NavRenderer.updateUserMarker(displayPosition, displayHeading, true, true);
-                    NavRenderer.updateAccuracyCircle(position, accuracy);
-                    return;
+                    if (deviationConfirmCount < DEVIATION_CONFIRM_COUNT) {
+                        // 还未达到确认次数，继续显示上次吸附位置
+                        displayPosition = NavRenderer.getLastSnappedPosition() || position;
+                        displayHeading = calculateCurrentBearing(currentSnappedIndex);
+                        NavRenderer.setCenterOnly(displayPosition, true);
+                        
+                        // 更新用户标记和精度圈
+                        NavRenderer.updateUserMarker(displayPosition, displayHeading, true, true);
+                        NavRenderer.updateAccuracyCircle(position, accuracy);
+                        
+                        // 【关键】提前return前必须重置处理标志
+                        isProcessingGPS = false;
+                        lastGPSProcessTime = Date.now();
+                        return;
+                    }
+                    // 达到确认次数，确认偏离
+                    console.log('[偏离确认] 连续5次在缓冲区内，确认偏离');
+                    isDeviationConfirmed = true;
+                } else if (nearestDistance > SNAP_THRESHOLD_BUFFER && !isDeviationConfirmed) {
+                    // 超过12米，直接确认偏离
+                    console.log(`[偏离确认] 距离${nearestDistance.toFixed(1)}米（超过12米），直接确认偏离`);
+                    isDeviationConfirmed = true;
+                    deviationConfirmCount = DEVIATION_CONFIRM_COUNT; // 设置为已确认
                 }
 
-                console.log('[点集吸附] 确认偏离（持续3秒未回归）');
+                // 已确认偏离，进入偏离处理逻辑
+                console.log('[点集吸附] 已确认偏离，显示真实GPS轨迹');
 
                 // 【优化方案】偏离后持续尝试吸附KML全路网并重新规划
                 let replanResult = false;
@@ -2993,7 +3064,8 @@ const NavCore = (function() {
                         if (replanResult === 'rejoined') {
                             // 用户回归到原路线（跳过一段后回到原路线的后半部分）
                             console.log('[KML吸附] ✓ 用户回归到原路线');
-                            deviationStartTime = 0;
+                            deviationConfirmCount = 0;
+                            isDeviationConfirmed = false;
                             hasAnnouncedDeviation = false;
                             NavRenderer.endDeviation(kmlSnapped, true);
 
@@ -3017,7 +3089,8 @@ const NavCore = (function() {
                         } else if (replanResult === true) {
                             console.log('[KML吸附] ✓ 重新规划成功');
                             // 重新规划成功，重置偏离状态
-                            deviationStartTime = 0;
+                            deviationConfirmCount = 0;
+                            isDeviationConfirmed = false;
                             hasAnnouncedDeviation = false;
                             NavRenderer.endDeviation(kmlSnapped, true);
 
@@ -3110,6 +3183,14 @@ const NavCore = (function() {
             // 6. 更新精度圈（始终使用GPS原始位置）
             NavRenderer.updateAccuracyCircle(position, accuracy);
 
+            // 记录位置变化（用于心跳检测）
+            if (!lastDisplayPosition || 
+                Math.abs(displayPosition[0] - lastDisplayPosition[0]) > 0.00001 ||
+                Math.abs(displayPosition[1] - lastDisplayPosition[1]) > 0.00001) {
+                lastDisplayPosition = displayPosition;
+                lastPositionChangeTime = Date.now();
+            }
+
             // 标记处理完成
             isProcessingGPS = false;
             lastGPSProcessTime = Date.now();
@@ -3199,9 +3280,30 @@ const NavCore = (function() {
         }
 
         heartbeatCheckerId = setInterval(() => {
-            if (!isNavigating) return;
-
             const now = Date.now();
+
+            // 【启动超时检测】如果正在启动导航但超过15秒还没完成，说明启动过程卡死
+            if (isStartingNavigation && !isNavigating) {
+                const startingDuration = now - navigationStartingTime;
+                if (startingDuration > 15000) {
+                    console.error('[心跳检测] 导航启动超时（超过15秒），强制重置状态');
+                    isStartingNavigation = false;
+                    // 提示用户
+                    try {
+                        NavTTS.speak('导航启动超时，请重试', { force: true });
+                    } catch (e) {}
+                    // 停止心跳检测
+                    stopHeartbeatChecker();
+                    return;
+                }
+                // 启动过程中，每3秒输出一次进度
+                if (startingDuration > 3000 && startingDuration % 3000 < 2000) {
+                    console.log(`[心跳检测] 导航启动中... 已耗时${(startingDuration / 1000).toFixed(1)}秒`);
+                }
+                return;
+            }
+
+            if (!isNavigating) return;
 
             // 检查GPS处理是否超时
             if (isProcessingGPS && (now - gpsProcessStartTime > GPS_TIMEOUT)) {
@@ -3218,7 +3320,9 @@ const NavCore = (function() {
                                 pos.coords.latitude
                             );
                             console.log('[心跳检测] GPS位置恢复:', converted);
-                            // 触发一次GPS更新
+                            // 重置状态，确保onGPSUpdate能执行
+                            lastGPSProcessTime = 0;
+                            isProcessingGPS = false;
                             onGPSUpdate(converted, pos.coords.accuracy || 10, pos.coords.heading || 0);
                         },
                         (err) => {
@@ -3231,12 +3335,106 @@ const NavCore = (function() {
                 }
             }
 
-            // 检查GPS是否长时间没有更新（超过10秒）
-            if (lastGPSProcessTime > 0 && (now - lastGPSProcessTime > 10000)) {
-                console.warn('[心跳检测] GPS长时间未更新，尝试重新获取');
+            // 检查GPS是否长时间没有更新（超过5秒）
+            if (lastGPSProcessTime > 0 && (now - lastGPSProcessTime > 5000)) {
+                console.warn('[心跳检测] GPS长时间未更新（超过5秒），尝试重新获取');
+                // 重置处理标志，允许新的GPS更新
+                isProcessingGPS = false;
+                // 更新时间戳，避免重复触发（5秒内不再重复）
+                lastGPSProcessTime = now; // 重置为当前时间
                 // 确保GPS监听正常
                 if (NavGPS && typeof NavGPS.ensureWatching === 'function') {
                     NavGPS.ensureWatching();
+                }
+                // 主动获取一次GPS位置
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            const converted = NavGPS.convertCoordinates(
+                                pos.coords.longitude,
+                                pos.coords.latitude
+                            );
+                            console.log('[心跳检测] GPS位置刷新成功:', converted);
+                            // 重置状态，确保onGPSUpdate能执行
+                            lastGPSProcessTime = 0;
+                            isProcessingGPS = false;
+                            onGPSUpdate(converted, pos.coords.accuracy || 10, pos.coords.heading || 0);
+                        },
+                        (err) => {
+                            console.warn('[心跳检测] GPS刷新失败:', err.message);
+                        },
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                    );
+                } catch (e) {
+                    console.error('[心跳检测] GPS刷新异常:', e);
+                }
+            }
+
+            // 【新增】检查是否从未收到GPS更新（导航启动后5秒内没有任何GPS更新）
+            if (lastGPSProcessTime === 0 && isNavigating && navigationStartingTime > 0 && (now - navigationStartingTime > 5000)) {
+                console.warn('[心跳检测] 导航启动后5秒内未收到GPS更新，尝试重新获取');
+                // 重置处理标志
+                isProcessingGPS = false;
+                // 设置一个临时值，避免重复触发（5秒内不再重复）
+                navigationStartingTime = now;
+                // 主动获取一次GPS位置
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            const converted = NavGPS.convertCoordinates(
+                                pos.coords.longitude,
+                                pos.coords.latitude
+                            );
+                            console.log('[心跳检测] 首次GPS位置获取成功:', converted);
+                            // 重置状态，确保onGPSUpdate能执行
+                            lastGPSProcessTime = 0;
+                            isProcessingGPS = false;
+                            onGPSUpdate(converted, pos.coords.accuracy || 10, pos.coords.heading || 0);
+                        },
+                        (err) => {
+                            console.warn('[心跳检测] 首次GPS获取失败:', err.message);
+                        },
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                    );
+                } catch (e) {
+                    console.error('[心跳检测] 首次GPS获取异常:', e);
+                }
+            }
+
+            // 【新增】检查位置是否长时间没有变化（超过8秒位置不变，可能是卡死）
+            if (lastPositionChangeTime > 0 && (now - lastPositionChangeTime > 8000)) {
+                console.warn('[心跳检测] 位置长时间未变化（超过8秒），尝试刷新');
+                // 重置处理标志
+                isProcessingGPS = false;
+                // 重置NavGPS的历史记录，避免被过滤
+                if (NavGPS && typeof NavGPS.clearHistory === 'function') {
+                    NavGPS.clearHistory();
+                }
+                // 主动获取一次GPS位置
+                try {
+                    navigator.geolocation.getCurrentPosition(
+                        (pos) => {
+                            const converted = NavGPS.convertCoordinates(
+                                pos.coords.longitude,
+                                pos.coords.latitude
+                            );
+                            console.log('[心跳检测] 位置刷新成功:', converted);
+                            // 强制更新位置
+                            lastPositionChangeTime = Date.now(); // 重置时间，避免重复触发
+                            // 重置状态，确保onGPSUpdate能执行
+                            lastGPSProcessTime = 0;
+                            isProcessingGPS = false;
+                            onGPSUpdate(converted, pos.coords.accuracy || 10, pos.coords.heading || 0);
+                        },
+                        (err) => {
+                            console.warn('[心跳检测] 位置刷新失败:', err.message);
+                            lastPositionChangeTime = now; // 重置时间，避免重复触发
+                        },
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                    );
+                } catch (e) {
+                    console.error('[心跳检测] 位置刷新异常:', e);
+                    lastPositionChangeTime = now;
                 }
             }
         }, 2000); // 每2秒检查一次
