@@ -718,6 +718,15 @@ const NavCore = (function() {
         if (isNearEnd || isWithin3Meters) {
             console.log(`[分段] 完成路段${currentSegmentIndex}: ${segmentRanges[currentSegmentIndex].name} (点集索引:${currentIndex}/${pointSet.length-1}, 实际距离:${actualDistance.toFixed(2)}米)`);
 
+            // 【修复】到达途径点时，补全灰色路线到整段末尾
+            // 防止因吸附跳跃导致中间路线没有变灰
+            const segmentEndIndex = pointSet.length - 1;
+            if (currentIndex < segmentEndIndex) {
+                console.log(`[分段] 补全灰色路线: ${currentIndex} -> ${segmentEndIndex}`);
+                currentSnappedIndex = segmentEndIndex;
+            }
+            NavRenderer.updatePassedRoute(segmentEndIndex, gpsPosition);
+
             // 降低已完成路段的层级
             NavRenderer.lowerCompletedSegmentZIndex();
 
