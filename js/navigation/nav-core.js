@@ -3019,6 +3019,20 @@ const NavCore = (function() {
                 // ========== 未吸附到路网（偏离路线超过8米）==========
                 const now = Date.now();
 
+                // 【关键】到达起点前不进行偏离检测和重新规划
+                // 避免E字型道路等场景下，用户还没到起点就被重新规划到"捷径"
+                if (!hasReachedStart) {
+                    console.log('[偏离检测] 尚未到达起点，跳过偏离检测');
+                    // 只更新位置显示，不做偏离处理
+                    NavRenderer.updateUserMarker(position, 0, true, false);
+                    NavRenderer.updateAccuracyCircle(position, accuracy);
+                    NavRenderer.setCenterOnly(position, true);
+                    
+                    isProcessingGPS = false;
+                    lastGPSProcessTime = Date.now();
+                    return;
+                }
+
                 // 【统一吸附】先尝试吸附KML全路网（可能用户走了其他道路）
                 const kmlSnapped = snapToKMLNetwork(position);
                 
