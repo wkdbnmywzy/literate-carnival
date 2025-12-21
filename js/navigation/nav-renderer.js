@@ -552,8 +552,29 @@ const NavRenderer = (function() {
                     }
                 }
 
-                // 更新位置（统一使用直接设置，避免 moveTo 在未加载动画插件时静默失败）
-                if (typeof userMarker.setPosition === 'function') {
+                // 更新位置（使用 moveTo 实现平滑移动）
+                if (typeof userMarker.moveTo === 'function' && smooth) {
+                    // 移动速度：根据距离动态计算，确保在1秒内完成（因为GPS通常1秒更新一次）
+                    // 最小速度 100km/h (约28m/s) 以保证快速跟进
+                    // 如果距离很近，使用更慢的速度以显得平滑
+                    const currentPos = userMarker.getPosition();
+                    const distance = AMap.GeometryUtil.distance(currentPos, position);
+                    
+                    // 如果距离过大（>50米），直接跳转不动画
+                    if (distance > 50) {
+                        userMarker.setPosition(position);
+                    } else {
+                        // 动态计算速度：距离 / 时间(0.8秒) * 3600 / 1000 = km/h
+                        // 保证在下一次GPS更新前完成移动
+                        let speed = (distance / 0.8) * 3.6; 
+                        speed = Math.max(speed, 10); // 最小速度 10km/h
+                        
+                        userMarker.moveTo(position, {
+                            speed: speed,
+                            autoRotation: false // 不自动旋转，由程序控制角度
+                        });
+                    }
+                } else if (typeof userMarker.setPosition === 'function') {
                     userMarker.setPosition(position);
                 } else if (typeof userMarker.setCenter === 'function') {
                     userMarker.setCenter(position);
