@@ -551,6 +551,7 @@ const NavUI = (function() {
 
             // 更新下方卡片UI
             const destDistanceEl = document.getElementById('destination-distance');
+            const destUnitEl = document.getElementById('destination-unit');
             const destTimeEl = document.getElementById('destination-time');
             const destNameEl = document.getElementById('destination-name');
 
@@ -559,7 +560,11 @@ const NavUI = (function() {
             }
 
             if (destDistanceEl) {
-                destDistanceEl.textContent = Math.round(totalDistance);
+                const formatted = formatDistanceForUI(totalDistance);
+                destDistanceEl.textContent = formatted.text;
+                if (destUnitEl) {
+                    destUnitEl.textContent = formatted.unit;
+                }
             }
 
             if (destTimeEl) {
