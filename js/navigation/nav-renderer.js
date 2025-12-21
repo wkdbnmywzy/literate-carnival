@@ -1022,7 +1022,26 @@ const NavRenderer = (function() {
             });
 
             const bounds = new AMap.Bounds([minLng, minLat], [maxLng, maxLat]);
-            map.setBounds(bounds, false, [100, 100, 100, 100]);
+
+            // 支持向上移动路线显示的偏移（单位：像素），通过 MapConfig 可配置
+            // 默认内边距：对称 [top, right, bottom, left]
+            const defaultPadding = (typeof MapConfig !== 'undefined' && MapConfig.routeFitPadding) ? MapConfig.routeFitPadding : [100, 100, 100, 100];
+            // verticalOffset: 正数表示把路线向上移（通过增加底部内边距并减少顶部内边距实现）
+            const verticalOffset = (typeof MapConfig !== 'undefined' && typeof MapConfig.routeFitVerticalOffset === 'number') ? MapConfig.routeFitVerticalOffset : 40;
+
+            // 计算新的 padding，确保不为负
+            const top = Math.max(0, (defaultPadding[0] || 0) - verticalOffset);
+            const right = defaultPadding[1] || 0;
+            const bottom = Math.max(0, (defaultPadding[2] || 0) + verticalOffset);
+            const left = defaultPadding[3] || 0;
+
+            const padding = [top, right, bottom, left];
+
+            if (typeof console !== 'undefined') {
+                console.log('[NavRenderer] adjustViewToPath padding=', padding, 'verticalOffset=', verticalOffset);
+            }
+
+            map.setBounds(bounds, false, padding);
         } catch (e) {
             console.error('[NavRenderer] 调整视野失败:', e);
         }
