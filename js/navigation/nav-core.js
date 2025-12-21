@@ -700,9 +700,9 @@ const NavCore = (function() {
         const endLat = Array.isArray(endPoint) ? endPoint[1] : endPoint.lat;
 
         // 判断到达条件：
-        // 1. 点集索引到达最后1-2个点
-        // 2. 或GPS实际位置距离途径点/终点 ≤ 3米
-        const isNearEnd = currentIndex >= pointSet.length - 3; // 最后2个点范围
+        // 1. 点集索引到达最后1-2个点 且 实际距离在合理范围内（防止吸附跳跃导致几十米外误判）
+        // 2. 或GPS实际位置距离途径点/终点 ≤ 3米（精确到达）
+        const isNearEnd = currentIndex >= pointSet.length - 2; // 最后2个点范围
 
         let actualDistance = Infinity;
         if (gpsPosition) {
@@ -713,9 +713,13 @@ const NavCore = (function() {
         }
 
         const isWithin3Meters = actualDistance <= 3;
+        
+        // 增加距离约束：即使吸附到了末尾，实际距离也不能太远（例如不超过10米）
+        // 这样可以解决"距离终点几十米就显示已到达"的问题
+        const isDistanceReasonable = actualDistance <= 10;
 
-        // 任一条件满足即判定到达
-        if (isNearEnd || isWithin3Meters) {
+        // 判定逻辑：(索引接近末尾 且 距离合理) 或 (距离非常近)
+        if ((isNearEnd && isDistanceReasonable) || isWithin3Meters) {
             console.log(`[分段] 完成路段${currentSegmentIndex}: ${segmentRanges[currentSegmentIndex].name} (点集索引:${currentIndex}/${pointSet.length-1}, 实际距离:${actualDistance.toFixed(2)}米)`);
 
             // 【修复】到达途径点时，补全灰色路线到整段末尾
@@ -3201,7 +3205,9 @@ const NavCore = (function() {
             }
 
             // 5. 更新用户位置标记（已到达起点后）
-            NavRenderer.updateUserMarker(displayPosition, displayHeading, true, true);
+            // 只有在非偏离状态下才启用平滑移动，偏离时直接跳转以快速响应
+            const enableSmooth = snapped && !NavRenderer.isDeviated();
+            NavRenderer.updateUserMarker(displayPosition, displayHeading, enableSmooth, true);
 
             // 6. 更新精度圈（始终使用GPS原始位置）
             NavRenderer.updateAccuracyCircle(position, accuracy);
